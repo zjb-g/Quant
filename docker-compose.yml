@@ -1,0 +1,23 @@
+# Docker Compose for Crypto Quant System
+# 默认仅用于 backtest / dry-run，禁止 live trading。
+# 实际回测/下载/dry-run 由 scripts/*.sh 通过 `docker compose run --rm` 覆盖 command。
+#
+# 安全说明：
+# - 默认 command 为 `freqtrade --version`，不下单、不连交易所。
+# - .env 中所有 LIVE_* 开关默认 false，live_guard 会拒绝实盘启动。
+# - 不引入数据库、Redis、消息队列服务。
+
+services:
+  freqtrade:
+    image: freqtradeorg/freqtrade:stable
+    container_name: quant-freqtrade
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Freqtrade 工作目录映射
+      - "./user_data:/freqtrade/user_data"
+    # 默认安全命令：仅打印版本。
+    # 脚本通过 `docker compose run --rm freqtrade <subcommand>` 覆盖。
+    command: ["freqtrade", "--version"]
+    # T8.1 将补充 healthcheck，当前 T0.2 暂不引入。

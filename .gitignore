@@ -1,0 +1,100 @@
+# ---- Node / 前端 ----
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+npm_install*.log
+npm_add*.log
+
+# ---- 临时文件 ----
+_*.py
+_*.log
+_btc_dl.py
+_dlall.py
+_bt5.py
+_nettest.py
+_monthly_test.py
+pytest_out.txt
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---- 虚拟环境 ----
+venv/
+.venv/
+env/
+ENV/
+
+# ---- 测试 / 覆盖率 ----
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ---- 类型检查 / lint ----
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# ---- IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ---- 密钥 / 环境变量（绝对禁止入库）----
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+config_live.json
+config.*.live.json
+user_data/config/config.json
+user_data/config/*.json
+!user_data/config/*.example.json
+
+# ---- Freqtrade 运行产物 ----
+user_data/data/
+user_data/logs/
+user_data/backtest_results/
+user_data/hyperopt_results/
+user_data/notebooks/.ipynb_checkpoints/
+user_data/tradesv3*.sqlite*
+user_data/strategies/__pycache__/
+
+# ---- Docker ----
+docker-compose.override.yml
+
+# ---- 操作系统 ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/

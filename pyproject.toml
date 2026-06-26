@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-quant-system"
+version = "0.1.0"
+description = "个人加密永续合约量化交易系统：Freqtrade + OKX USDT 永续 + 风控护栏 + Telegram 监控"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Personal Quant" }]
+keywords = ["freqtrade", "okx", "perpetual", "quant", "trading"]
+
+# 运行时依赖：freqtrade 实际通过 Docker 镜像运行，
+# 此处声明便于本地 IDE / 测试环境 import quant_guard。
+dependencies = [
+    "ccxt>=4.2.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "python-telegram-bot>=21.0",
+    "pandas>=2.1",
+    "numpy>=1.26",
+    "tabulate>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[tool.setuptools.packages.find]
+include = ["quant_guard*"]
+exclude = ["tests*", "user_data*", "scripts*", "docs*"]
+
+# ---- Ruff ----
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+# ---- mypy ----
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+
+# ---- pytest ----
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra -q"
