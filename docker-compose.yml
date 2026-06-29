@@ -1,11 +1,11 @@
 # Docker Compose for Crypto Quant System
 # 默认仅用于 backtest / dry-run，禁止 live trading。
-# 实际回测/下载/dry-run 由 scripts/*.sh 通过 `docker compose run --rm` 覆盖 command。
 #
 # 安全说明：
 # - 默认 command 为 `freqtrade --version`，不下单、不连交易所。
 # - .env 中所有 LIVE_* 开关默认 false，live_guard 会拒绝实盘启动。
-# - 不引入数据库、Redis、消息队列服务。
+# - healthcheck 调用心跳检查（T8.1）。
+# - restart: unless-stopped 确保异常退出后自动重启。
 
 services:
   freqtrade:
@@ -20,4 +20,47 @@ services:
     # 默认安全命令：仅打印版本。
     # 脚本通过 `docker compose run --rm freqtrade <subcommand>` 覆盖。
     command: ["freqtrade", "--version"]
-    # T8.1 将补充 healthcheck，当前 T0.2 暂不引入。
+    # T8.1: healthcheck 调用心跳检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "from quant_guard.monitoring.heartbeat import check_health; import sys; sys.exit(0 if check_health() else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    # 日志限制
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # FastAPI 后端（可选，用于 Web UI）
+  api:
+    image: python:3.12-slim
+    container_name: quant-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    working_dir: /app
+    volumes:
+      - "./quant_guard:/app/quant_guard"
+      - "./user_data:/app/user_data"
+      - "./scripts:/app/scripts"
+    command: >
+      bash -c "pip install fastapi uvicorn ccxt pandas pyyaml python-dotenv --quiet
+      && uvicorn quant_guard.api.app:app --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - freqtrade
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/status')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
