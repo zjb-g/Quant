@@ -345,6 +345,265 @@ def get_alerts(limit: int = 100):
     return _ALERTS[:limit]
 
 
+# ================================================================== #
+# 策略管理 API
+# ================================================================== #
+
+class StrategyGenerateRequest(BaseModel):
+    description: str
+    filename: str = ""
+
+
+class StrategySaveRequest(BaseModel):
+    filename: str
+    code: str
+
+
+class StrategyRefineRequest(BaseModel):
+    code: str
+    feedback: str
+
+
+@app.get("/api/strategies")
+def list_strategies_api():
+    """列出所有策略文件。"""
+    from quant_guard.services.strategy_manager import list_strategies
+    strategies = list_strategies()
+    return [
+        {
+            "filename": s.filename,
+            "name": s.name,
+            "description": s.description,
+            "size": s.size,
+            "has_errors": s.has_errors,
+            "error_msg": s.error_msg,
+        }
+        for s in strategies
+    ]
+
+
+@app.get("/api/strategies/{filename}")
+def get_strategy_api(filename: str):
+    """读取策略代码。"""
+    from quant_guard.services.strategy_manager import get_strategy_code
+    code = get_strategy_code(filename)
+    if code is None:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    return {"filename": filename, "code": code}
+
+
+@app.post("/api/strategies")
+def save_strategy_api(req: StrategySaveRequest):
+    """保存/更新策略代码。"""
+    from quant_guard.services.strategy_manager import save_strategy
+    try:
+        path = save_strategy(req.filename, req.code)
+        _add_alert("INFO", "strategy_saved", f"策略 {req.filename} 已保存")
+        return {"status": "saved", "filename": req.filename, "path": str(path)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/strategies/{filename}")
+def delete_strategy_api(filename: str):
+    """删除策略文件。"""
+    from quant_guard.services.strategy_manager import delete_strategy
+    ok = delete_strategy(filename)
+    if not ok:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    _add_alert("WARNING", "strategy_deleted", f"策略 {filename} 已删除")
+    return {"status": "deleted"}
+
+
+# ================================================================== #
+# AI 策略生成 API（DeepSeek）
+# ================================================================== #
+
+@app.post("/api/ai/generate-strategy")
+def ai_generate_strategy(req: StrategyGenerateRequest):
+    """用自然语言描述生成 Freqtrade 策略代码（DeepSeek AI）。"""
+    from quant_guard.ai.deepseek import DeepSeekClient
+    client = DeepSeekClient()
+    if not client.is_configured:
+        raise HTTPException(
+            status_code=400,
+            detail="DeepSeek API 未配置。请在 .env 中设置 DEEPSEEK_API_KEY=sk-xxx",
+        )
+    try:
+        code = client.generate_strategy(req.description)
+        _add_alert("INFO", "ai_strategy_generated", f"AI 生成策略: {req.description[:50]}...")
+        # 如果提供了文件名，自动保存
+        filename = req.filename or "AIGeneratedStrategy.py"
+        return {"code": code, "filename": filename, "description": req.description}
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai/refine-strategy")
+def ai_refine_strategy(req: StrategyRefineRequest):
+    """根据反馈修改已有策略代码。"""
+    from quant_guard.ai.deepseek import DeepSeekClient
+    client = DeepSeekClient()
+    if not client.is_configured:
+        raise HTTPException(status_code=400, detail="DeepSeek API 未配置")
+    try:
+        code = client.refine_strategy(req.code, req.feedback)
+        return {"code": code}
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ai/status")
+def ai_status():
+    """检查 AI 服务是否已配置。"""
+    from quant_guard.ai.deepseek import DeepSeekClient
+    client = DeepSeekClient()
+    return {"configured": client.is_configured, "model": client.model}
+
+
+# ================================================================== #
+# 交易所连接 + 真实数据 API
+# ================================================================== #
+
+class EnvUpdateRequest(BaseModel):
+    """环境变量更新请求（运行时，不持久化到 .env 文件）。"""
+    vars: dict
+
+
+@app.get("/api/exchange/status")
+def exchange_status():
+    """检查交易所连接状态。"""
+    from quant_guard.services.exchange_service import ExchangeService
+    svc = ExchangeService()
+    conn = svc.test_connection()
+    return {
+        "connected": conn.connected,
+        "exchange": conn.exchange,
+        "error": conn.error,
+        "account_mode": conn.account_mode,
+    }
+
+
+@app.post("/api/exchange/config")
+def exchange_config(req: EnvUpdateRequest):
+    """配置交易所 API Key（运行时设置环境变量，不写入文件）。"""
+    import os
+    for key, value in req.vars.items():
+        if value:
+            os.environ[key] = value
+        elif key in os.environ:
+            del os.environ[key]
+    _add_alert("INFO", "exchange_configured", f"交易所环境变量已更新: {list(req.vars.keys())}")
+    return {"status": "updated", "keys": list(req.vars.keys())}
+
+
+@app.get("/api/exchange/balance")
+def exchange_balance():
+    """获取账户余额。"""
+    from quant_guard.services.exchange_service import ExchangeService
+    svc = ExchangeService()
+    try:
+        bal = svc.get_balance()
+        return {"total": bal.total, "free": bal.free, "used": bal.used, "currency": bal.currency}
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取余额失败: {e}")
+
+
+@app.get("/api/exchange/positions")
+def exchange_positions():
+    """获取当前真实持仓。"""
+    from quant_guard.services.exchange_service import ExchangeService
+    svc = ExchangeService()
+    try:
+        return svc.get_positions()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取持仓失败: {e}")
+
+
+@app.get("/api/exchange/trades")
+def exchange_trades(limit: int = 100):
+    """获取历史交易记录。"""
+    from quant_guard.services.exchange_service import ExchangeService
+    svc = ExchangeService()
+    try:
+        trades = svc.get_historical_trades(limit)
+        return [
+            {
+                "id": t.id,
+                "timestamp": t.timestamp,
+                "symbol": t.symbol,
+                "side": t.side,
+                "amount": t.amount,
+                "price": t.price,
+                "fee": t.fee,
+                "pnl": t.pnl,
+            }
+            for t in trades
+        ]
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取交易记录失败: {e}")
+
+
+@app.get("/api/exchange/orders")
+def exchange_orders():
+    """获取当前挂单。"""
+    from quant_guard.services.exchange_service import ExchangeService
+    svc = ExchangeService()
+    try:
+        return svc.get_open_orders()
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取挂单失败: {e}")
+
+
+@app.post("/api/exchange/test")
+def exchange_test(req: EnvUpdateRequest):
+    """设置 API Key 并测试连接（一步完成）。"""
+    import os
+    for key, value in req.vars.items():
+        if value:
+            os.environ[key] = value
+    from quant_guard.services.exchange_service import ExchangeService
+    svc = ExchangeService()
+    # 重置已缓存的连接
+    svc._exchange = None
+    svc._exchange_name = ""
+    conn = svc.test_connection()
+    if conn.connected:
+        _add_alert("INFO", "exchange_connected", f"交易所 {conn.exchange} 连接成功")
+    else:
+        _add_alert("WARNING", "exchange_connect_failed", f"交易所连接失败: {conn.error}")
+    return {
+        "connected": conn.connected,
+        "exchange": conn.exchange,
+        "error": conn.error,
+    }
+
+
+# ================================================================== #
+# 环境变量管理 API
+# ================================================================== #
+
+@app.get("/api/env")
+def get_env():
+    """获取当前环境变量配置状态（不返回值，只返回是否已设置）。"""
+    keys = [
+        "OKX_API_KEY", "OKX_API_SECRET", "OKX_API_PASSPHRASE",
+        "GATE_API_KEY", "GATE_API_SECRET",
+        "DEEPSEEK_API_KEY", "DEEPSEEK_MODEL",
+        "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+        "LIVE_TRADING_CONFIRMED", "RISK_CONFIG_LOADED",
+    ]
+    return {k: bool(os.environ.get(k, "")) for k in keys}
+
+
 @app.on_event("startup")
 def on_startup():
     """启动时记录。"""

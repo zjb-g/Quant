@@ -5,6 +5,8 @@ import {
   LineChartOutlined,
   ControlOutlined,
   AlertOutlined,
+  CodeOutlined,
+  ApiOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
@@ -34,6 +36,8 @@ export default function MainLayout() {
   const menuItems = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
     { key: '/backtest', icon: <LineChartOutlined />, label: '回测分析' },
+    { key: '/strategy', icon: <CodeOutlined />, label: '策略管理' },
+    { key: '/exchange', icon: <ApiOutlined />, label: '交易所连接' },
     { key: '/control', icon: <ControlOutlined />, label: '控制台' },
     {
       key: '/alerts',

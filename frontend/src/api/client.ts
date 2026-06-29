@@ -124,6 +124,60 @@ export const apiClient = {
   // 告警
   getAlerts: (limit = 100) =>
     api.get<AlertEvent[]>(`/alerts?limit=${limit}`).then((r) => r.data),
+
+  // 策略管理
+  getStrategies: () =>
+    api.get<StrategyInfo[]>('/strategies').then((r) => r.data),
+  getStrategyCode: (filename: string) =>
+    api.get<{filename: string; code: string}>(`/strategies/${filename}`).then((r) => r.data),
+  saveStrategy: (filename: string, code: string) =>
+    api.post('/strategies', { filename, code }).then((r) => r.data),
+  deleteStrategy: (filename: string) =>
+    api.delete(`/strategies/${filename}`).then((r) => r.data),
+
+  // AI 策略生成
+  aiStatus: () =>
+    api.get<{configured: boolean; model: string}>('/ai/status').then((r) => r.data),
+  aiGenerateStrategy: (description: string, filename?: string) =>
+    api.post('/ai/generate-strategy', { description, filename: filename || '' }).then((r) => r.data),
+  aiRefineStrategy: (code: string, feedback: string) =>
+    api.post('/ai/refine-strategy', { code, feedback }).then((r) => r.data),
+
+  // 交易所连接
+  getExchangeStatus: () =>
+    api.get<{connected: boolean; exchange: string; error: string; account_mode: string}>('/exchange/status').then((r) => r.data),
+  testExchange: (vars: Record<string, string>) =>
+    api.post('/exchange/test', { vars }).then((r) => r.data),
+  getExchangeBalance: () =>
+    api.get<{total: number; free: number; used: number; currency: string}>('/exchange/balance').then((r) => r.data),
+  getExchangePositions: () =>
+    api.get<Position[]>('/exchange/positions').then((r) => r.data),
+  getExchangeTrades: (limit = 100) =>
+    api.get<HistoricalTrade[]>(`/exchange/trades?limit=${limit}`).then((r) => r.data),
+  getExchangeOrders: () =>
+    api.get('/exchange/orders').then((r) => r.data),
+  getEnvStatus: () =>
+    api.get<Record<string, boolean>>('/env').then((r) => r.data),
 }
 
-export default api
+// ---------- 额外类型 ----------
+
+export interface StrategyInfo {
+  filename: string
+  name: string
+  description: string
+  size: number
+  has_errors: boolean
+  error_msg: string
+}
+
+export interface HistoricalTrade {
+  id: string
+  timestamp: string
+  symbol: string
+  side: string
+  amount: number
+  price: number
+  fee: number
+  pnl: number
+}
