@@ -102,7 +102,7 @@ export const apiClient = {
 
   // 回测
   getBacktestList: () =>
-    api.get<string[]>('/backtest/list').then((r) => r.data),
+    api.get<{id: string; strategy: string; timestamp: string}[]>('/backtest/list').then((r) => r.data),
   getBacktestResult: (id: string) =>
     api
       .get<{ summary: BacktestSummary; trades: BacktestTrade[] }>(

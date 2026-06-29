@@ -1,0 +1,24 @@
+
+===== [2/4] FundingRateTrendStrategy =====
+  exit=1  7s
+  ERR: y", optimize=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: DecimalParameter.__init__() takes from 2 to 3 positional arguments but 4 positional arguments (and 3 keyword-only arguments) were given
+
+
+===== [3/4] RsiReversalStrategy =====
+  exit=1  7s
+  ERR: ", optimize=True)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: DecimalParameter.__init__() takes from 2 to 3 positional arguments but 4 positional arguments (and 3 keyword-only arguments) were given
+
+
+===== [4/4] BollingerBreakoutStrategy =====
+  exit=1  7s
+  ERR: ", optimize=True)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: DecimalParameter.__init__() takes from 2 to 3 positional arguments but 4 positional arguments (and 3 keyword-only arguments) were given
+
+
+===== 1 result files =====
+  .last_result.json

@@ -59,20 +59,16 @@ class FundingRateTrendStrategy(IStrategy):
     # ---- 可配置参数 ----
 
     # EMA 周期
-    ema_fast = DecimalParameter(20, 10, 30, default=20, space="buy", optimize=True)
-    ema_slow = DecimalParameter(50, 40, 60, default=50, space="buy", optimize=True)
+    ema_fast = DecimalParameter(10, 30, default=20, space="buy", optimize=True)
+    ema_slow = DecimalParameter(40, 60, default=50, space="buy", optimize=True)
 
     # ATR 过滤：ATR 占价格比例上限（超过则波动过大，不进场）
-    atr_period = DecimalParameter(14, 10, 20, default=14, space="buy", optimize=False)
-    max_atr_pct = DecimalParameter(
-        0.02, 0.005, 0.05, default=0.02, decimals=4, space="buy", optimize=True
-    )
+    atr_period = DecimalParameter(10, 20, default=14, space="buy", optimize=False)
+    max_atr_pct = DecimalParameter(0.005, 0.05, default=0.02, decimals=4, space="buy", optimize=True)
 
     # 资金费率过滤：资金费率绝对值上限（超过则持仓成本过高，不进场）
     # OKX 每 8h 结算一次，年化 0.01%*3*365=10.95%
-    max_funding_rate = DecimalParameter(
-        0.0005, 0.0001, 0.002, default=0.0005, decimals=6, space="buy", optimize=True
-    )
+    max_funding_rate = DecimalParameter(0.0001, 0.002, default=0.0005, decimals=6, space="buy", optimize=True)
 
     def leverage(
         self,

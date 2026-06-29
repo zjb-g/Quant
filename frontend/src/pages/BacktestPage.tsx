@@ -15,7 +15,7 @@ import {
 import { apiClient, type BacktestSummary, type BacktestTrade } from '../api/client'
 
 export default function BacktestPage() {
-  const [backtestIds, setBacktestIds] = useState<string[]>([])
+  const [backtestIds, setBacktestIds] = useState<{id: string; strategy: string; timestamp: string}[]>([])
   const [selectedId, setSelectedId] = useState<string | undefined>()
   const [summary, setSummary] = useState<BacktestSummary | null>(null)
   const [trades, setTrades] = useState<BacktestTrade[]>([])
@@ -24,7 +24,7 @@ export default function BacktestPage() {
   useEffect(() => {
     apiClient.getBacktestList().then(setBacktestIds).catch(() => {
       message.warning('后端未连接，显示占位')
-      setBacktestIds(['mock-2026-06-26'])
+      setBacktestIds([{id: 'mock-2026-06-26', strategy: 'EmaCrossoverStrategy', timestamp: '2026-06-26'}])
     })
   }, [])
 
@@ -72,7 +72,7 @@ export default function BacktestPage() {
           placeholder="选择回测结果"
           value={selectedId}
           onChange={setSelectedId}
-          options={backtestIds.map((id) => ({ label: id, value: id }))}
+          options={backtestIds.map((bt) => ({ label: `${bt.strategy} (${bt.timestamp})`, value: bt.id }))}
         />
       </Card>
 

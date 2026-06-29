@@ -5,7 +5,9 @@
 
 import json
 import os
+import zipfile
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
@@ -194,33 +196,47 @@ def get_risk_state():
 # ---------- 回测 API ----------
 
 
-@app.get("/api/backtest/list", response_model=list[str])
+@app.get("/api/backtest/list")
 def list_backtests():
-    """列出可用的回测结果 ID。"""
+    """列出可用的回测结果，返回 {id, strategy, timestamp} 列表。"""
     if not BACKTEST_RESULTS_DIR.exists():
         return []
-    ids = []
-    for f in BACKTEST_RESULTS_DIR.glob("*.json"):
-        if "meta" not in f.name:
-            ids.append(f.stem)
-    return sorted(ids, reverse=True)
+    results = []
+    for f in BACKTEST_RESULTS_DIR.glob("backtest-result-*.zip"):
+        ts = f.stem.replace("backtest-result-", "")
+        strategy_name = ""
+        try:
+            with zipfile.ZipFile(f) as zf:
+                json_names = [n for n in zf.namelist() if n.endswith(".json")]
+                if json_names:
+                    data = json.loads(zf.read(json_names[0]).decode("utf-8"))
+                    strategies = list(data.get("strategy", {}).keys())
+                    strategy_name = strategies[0] if strategies else ""
+        except Exception:
+            pass
+        results.append({"id": ts, "strategy": strategy_name, "timestamp": ts})
+    return sorted(results, key=lambda x: x["timestamp"], reverse=True)
 
 
 @app.get("/api/backtest/{backtest_id}")
 def get_backtest_result(backtest_id: str):
-    """获取指定回测结果的摘要和交易明细。"""
-    # 尝试读取 Freqtrade 回测结果 JSON
-    result_file = BACKTEST_RESULTS_DIR / f"{backtest_id}.json"
-    if not result_file.exists():
-        # 查找带时间戳的文件
-        candidates = list(BACKTEST_RESULTS_DIR.glob(f"*{backtest_id}*.json"))
-        candidates = [c for c in candidates if "meta" not in c.name]
+    """获取指定回测结果的摘要和交易明细。从 zip 中读取 JSON。"""
+    # 查找对应的 zip 文件
+    zip_file = BACKTEST_RESULTS_DIR / f"backtest-result-{backtest_id}.zip"
+    if not zip_file.exists():
+        # 模糊匹配
+        candidates = list(BACKTEST_RESULTS_DIR.glob(f"*{backtest_id}*.zip"))
         if not candidates:
             raise HTTPException(status_code=404, detail="backtest not found")
-        result_file = candidates[0]
+        zip_file = candidates[0]
 
-    with open(result_file, encoding="utf-8") as f:
-        raw = json.load(f)
+    # 从 zip 读取 JSON
+    with zipfile.ZipFile(zip_file) as zf:
+        json_names = [n for n in zf.namelist() if n.endswith(".json")]
+        if not json_names:
+            raise HTTPException(status_code=500, detail="no json in zip")
+        with zf.open(json_names[0]) as f:
+            raw = json.loads(f.read().decode("utf-8"))
 
     strategy = raw.get("strategy", {})
     strategy_name = list(strategy.keys())[0] if strategy else "unknown"
