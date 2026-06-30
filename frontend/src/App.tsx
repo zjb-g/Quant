@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Spin } from 'antd'
+import AuthGate from './components/AuthGate'
 import MainLayout from './layouts/MainLayout'
 import DashboardPage from './pages/DashboardPage'
 import BacktestPage from './pages/BacktestPage'
@@ -8,6 +9,8 @@ import ControlPage from './pages/ControlPage'
 import AlertsPage from './pages/AlertsPage'
 import StrategyPage from './pages/StrategyPage'
 import ExchangePage from './pages/ExchangePage'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
 
 // 持仓复盘页含 lightweight-charts，按需懒加载，避免拖慢首页
 const TradeReviewPage = lazy(() => import('./pages/TradeReviewPage'))
@@ -24,7 +27,16 @@ function PageLoader() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<MainLayout />}>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
+      <Route
+        path="/"
+        element={(
+          <AuthGate>
+            <MainLayout />
+          </AuthGate>
+        )}
+      >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="backtest" element={<BacktestPage />} />

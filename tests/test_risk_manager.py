@@ -180,9 +180,10 @@ def test_max_drawdown_allows_reduce_only():
 
 def test_daily_loss_triggers_emergency_stop():
     """每日亏损超限触发 emergency_stop。"""
+    from datetime import datetime, timezone
+
     rm = RiskManager()
-    # 设置 current_date 避免被 check_daily_reset 重置
-    rm.state.current_date = "2026-06-29"
+    rm.state.current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     rm.state.daily_start_equity = 1000
     rm.state.current_equity = 940  # 日亏 6% > 5%
     order = {"symbol": "BTC/USDT:USDT", "notional": 100, "leverage": 3, "is_reduce_only": False}

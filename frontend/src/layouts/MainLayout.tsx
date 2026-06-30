@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Layout, Menu, Badge, theme } from 'antd'
+import { Layout, Menu, Badge, Button, Drawer, theme } from 'antd'
 import {
   DashboardOutlined,
   LineChartOutlined,
@@ -9,21 +9,30 @@ import {
   ApiOutlined,
   FundOutlined,
   BarChartOutlined,
+  LogoutOutlined,
+  MenuOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { apiClient } from '../api/client'
+import { apiClient, clearAuthToken } from '../api/client'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 const { Header, Sider, Content } = Layout
 
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
+  const [authEnabled, setAuthEnabled] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
   const { token } = theme.useToken()
+  const isMobile = useIsMobile()
 
   useEffect(() => {
-    // 轮询未读告警数
+    apiClient.authStatus().then((s) => setAuthEnabled(s.enabled)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     const fetchAlerts = () => {
       apiClient.getAlerts(10).then((alerts) => {
         const critical = alerts.filter((a) => a.level === 'CRITICAL').length
@@ -34,6 +43,10 @@ export default function MainLayout() {
     const timer = setInterval(fetchAlerts, 30000)
     return () => clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    setDrawerOpen(false)
+  }, [location.pathname])
 
   const menuItems = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
@@ -54,56 +67,128 @@ export default function MainLayout() {
     },
   ]
 
+  const handleMenuClick = ({ key }: { key: string }) => {
+    navigate(key)
+    if (isMobile) setDrawerOpen(false)
+  }
+
+  const menu = (
+    <Menu
+      mode="inline"
+      selectedKeys={[location.pathname]}
+      items={menuItems}
+      onClick={handleMenuClick}
+    />
+  )
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        collapsible
-        collapsed={collapsed}
-        onCollapse={setCollapsed}
-        style={{ background: token.colorBgContainer }}
-      >
-        <div
-          style={{
-            height: 48,
-            margin: 12,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: token.colorPrimary,
-            fontWeight: 700,
-            fontSize: collapsed ? 14 : 16,
-          }}
+      {!isMobile && (
+        <Sider
+          collapsible
+          collapsed={collapsed}
+          onCollapse={setCollapsed}
+          style={{ background: token.colorBgContainer }}
+          breakpoint="lg"
+          collapsedWidth={64}
         >
-          {collapsed ? 'Q' : 'Crypto Quant'}
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-        />
-      </Sider>
+          <div
+            style={{
+              height: 48,
+              margin: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: token.colorPrimary,
+              fontWeight: 700,
+              fontSize: collapsed ? 14 : 16,
+            }}
+          >
+            {collapsed ? 'Q' : 'Crypto Quant'}
+          </div>
+          {menu}
+        </Sider>
+      )}
       <Layout>
         <Header
+          className="app-header"
           style={{
-            padding: '0 24px',
+            padding: isMobile ? '0 12px' : '0 24px',
             background: token.colorBgContainer,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 8,
+            lineHeight: 'normal',
+            height: isMobile ? 52 : 64,
           }}
         >
-          <span style={{ fontSize: 16, fontWeight: 600 }}>
-            个人加密永续合约量化交易系统
-          </span>
-          <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
-            OKX · USDT 永续 · 15m · 5x
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+            {isMobile && (
+              <Button
+                type="text"
+                icon={<MenuOutlined />}
+                onClick={() => setDrawerOpen(true)}
+                aria-label="打开菜单"
+              />
+            )}
+            <span
+              className="app-header-title"
+              style={{
+                fontSize: isMobile ? 15 : 16,
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {isMobile ? 'Crypto Quant' : '个人加密永续合约量化交易系统'}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 16, flexShrink: 0 }}>
+            {!isMobile && (
+              <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
+                OKX · USDT 永续 · 15m · 5x
+              </span>
+            )}
+            {authEnabled && (
+              <Button
+                type="text"
+                icon={<LogoutOutlined />}
+                onClick={() => {
+                  clearAuthToken()
+                  navigate('/login')
+                }}
+              >
+                {isMobile ? '' : '退出登录'}
+              </Button>
+            )}
+          </div>
         </Header>
-        <Content style={{ margin: 16, padding: 24, background: token.colorBgContainer, borderRadius: 8 }}>
+        <Content
+          className="app-content"
+          style={{
+            margin: isMobile ? 8 : 16,
+            padding: isMobile ? 12 : 24,
+            background: token.colorBgContainer,
+            borderRadius: 8,
+          }}
+        >
           <Outlet />
         </Content>
       </Layout>
+      {isMobile && (
+        <Drawer
+          title="Crypto Quant"
+          placement="left"
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          width={280}
+          styles={{ body: { padding: 0 } }}
+        >
+          {menu}
+        </Drawer>
+      )}
     </Layout>
   )
 }

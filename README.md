@@ -1,71 +1,86 @@
 # Crypto Quant System
 
-个人加密永续合约量化交易系统 —— 基于 Freqtrade + OKX USDT 永续合约 + 风控护栏 + Telegram 监控。
+个人加密永续合约量化交易系统 —— 基于 Freqtrade + OKX USDT 永续合约 + 风控护栏 + Web 控制台。
 
-> 本仓库由 `CURSOR_AI_DEVELOPMENT_COMMANDER.md` 指挥开发，严格分阶段、逐任务推进。
 > 未经 `docs/LIVE_SAFETY_CHECKLIST.md` 全部通过，禁止进入实盘。
 
 ## 目标
 
 ```
-策略研究 → 可信回测(含资金费/手续费/强平) → dry-run → 小资金实盘 → 风控闭环 + Telegram 监控
+策略研究 → 可信回测 → Web 复盘/分析 → dry-run → 小资金实盘 → 风控闭环
 ```
-
-核心原则：不自研造轮子，复用 Freqtrade / CCXT；研究、回测、模拟盘、实盘同一份策略代码；安全优先于收益；风控模块是下单前强制关卡。
 
 ## 技术栈
 
 | 层级 | 技术 |
 |---|---|
 | 主框架 | Freqtrade |
-| 交易所接口 | CCXT / Freqtrade 内置 exchange 层 |
-| 主交易所 | OKX |
-| 交易品种 | USDT 本位永续合约 |
-| 语言 | Python 3.11+ |
-| 配置 | JSON / YAML / `.env` |
-| 部署 | Docker Compose |
-| 告警控制 | Telegram Bot |
+| 交易所 | OKX（CCXT） |
+| 自研层 | quant_guard（风控 / 执行 / K 线 / 分析） |
+| 前端 | React + Vite + Ant Design |
+| 后端 API | FastAPI（单端口 8000 托管前端） |
 | 测试 | pytest |
 
-## 项目关键参数（决策记录）
+## 快速开始
 
-详见 `docs/DECISIONS.md`。摘要：
+```bash
+cp .env.example .env          # 填入 OKX / DeepSeek 等密钥
+python -m venv .venv && .venv/bin/pip install -e ".[dev,freqtrade]"
 
-- 交易品种：BTC / ETH / SOL / BNB / XRP（5 币 USDT 永续）
-- 策略主时间框架：15m
-- 持仓模式：双向持仓（支持对冲），最高杠杆 5x
-- 小资金实盘规模：≤ 1000 USDT
-- OKX 账户模式：统一账户（Unified）
-- 资金费结算频率：每 8h（00/08/16 UTC）
+# 一键启动 Web（API + 前端）
+bash scripts/start_web.sh
+# 浏览器打开 http://localhost:8000
+```
+
+### 下载 K 线
+
+```bash
+bash scripts/download_klines.sh all        # 推荐：Binance + OKX 双轨
+bash scripts/download_klines.sh binance    # 仅 Binance
+bash scripts/download_klines.sh okx        # 仅 OKX 小币
+```
+
+### 回测与 dry-run
+
+```bash
+bash scripts/run_backtest.sh               # CLI 回测
+# 或在 Web「回测分析」页运行
+
+bash scripts/precheck_dryrun.py            # dry-run 启动前检查
+# 或在 Web「控制台」启动 Freqtrade dry-run
+```
+
+## Web 功能
+
+| 页面 | 功能 |
+|---|---|
+| 仪表盘 | Bot 状态、持仓、权益曲线、风控 |
+| 回测分析 | Web 触发 Freqtrade 回测 |
+| 策略管理 | 策略 CRUD + AI 生成 |
+| 交易所 | OKX 连接、余额、持仓 |
+| 持仓复盘 | K 线 + 进出场标注 |
+| 持仓分析 | 胜率/杠杆分组 + AI 分析 |
+| 控制台 | Bot 启停、Kill Switch、紧急全平 |
+| 告警 | 系统事件 |
+
+## 安全声明
+
+- 默认只允许 backtest / dry-run。
+- Kill Switch 会**停止 Bot** 并阻断新开仓；紧急全平经 `ExecutionEngine` + `RiskManager`。
+- 真实平仓需 `LIVE_TRADING_CONFIRMED=true`。
+- API Key 不得入库，统一从 `.env` 读取。
+- **公网暴露**前必须启用 JWT 登录，见 [docs/PUBLIC_ACCESS.md](docs/PUBLIC_ACCESS.md)。
 
 ## 目录结构
 
 ```
 crypto-quant-system/
-├── user_data/          # Freqtrade 习惯目录（策略/配置/数据/日志/回测结果）
-├── quant_guard/        # 自研风控/执行增强/监控/回测校验层
+├── quant_guard/        # 风控 / 执行 / API / 服务层
+├── user_data/          # Freqtrade 策略 / 配置 / 数据
+├── frontend/           # React 前端
 ├── scripts/            # 运维脚本
-├── tests/              # 测试
-└── docs/               # 文档与阶段门禁记录
+├── tests/              # pytest
+└── docs/               # 阶段门禁与决策记录
 ```
 
-## 快速开始（待 T0.2 完成后可用）
-
-```bash
-cp .env.example .env            # 填入占位（dry-run 阶段可为空）
-docker compose config           # 校验 compose
-bash scripts/download_data.sh   # 下载历史数据
-bash scripts/run_backtest.sh    # 运行回测
-```
-
-## 安全声明
-
-- 默认只允许 backtest / dry-run，禁止 live trading。
-- 所有下单路径必须经过 `quant_guard.risk.RiskManager`。
-- API Key、Secret、Passphrase 不得写入代码库，统一从 `.env` 读取。
-- 系统不包含任何提币 / 资金划转逻辑。
-- 实盘前必须完成 `docs/LIVE_SAFETY_CHECKLIST.md` 全部检查项。
-
-## 开发指挥
-
-开发顺序与任务编号见 `CURSOR_AI_DEVELOPMENT_COMMANDER.md`，当前进度见 `docs/PROJECT_STATE.md`。
+开发进度见 `docs/PROJECT_STATE.md`。

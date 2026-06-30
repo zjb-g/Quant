@@ -1,0 +1,12 @@
+# 将 your-domain.com 替换为你的域名，并确保 DNS 已指向本机公网 IP
+your-domain.com {
+    encode gzip
+
+    # 仅通过 HTTPS 反代到本机 Web 服务（不要直接把 8000 暴露到公网）
+    reverse_proxy 127.0.0.1:8000
+}
+
+# 启动方式（需先安装 Caddy: https://caddyserver.com/docs/install）:
+#   caddy run --config deploy/Caddyfile
+#
+# Caddy 会自动申请并续期 Let's Encrypt 证书。

@@ -38,13 +38,12 @@ export default function DashboardPage() {
       if (e.status === 'fulfilled') setEquity(e.value)
       if (r.status === 'fulfilled') setRisk(r.value)
       if (s.status === 'rejected') {
-        message.warning('后端未连接，显示占位数据')
-        setStatus({ bot_running: true, dry_run: true, strategy: 'EmaCrossoverStrategy', exchange: 'gate', uptime_seconds: 3600, current_time: new Date().toISOString() })
+        message.warning('后端未连接')
       }
       setLoading(false)
     }
     load()
-    const timer = setInterval(load, 30000)
+    const timer = setInterval(load, 10000)
     return () => clearInterval(timer)
   }, [])
 
@@ -57,7 +56,7 @@ export default function DashboardPage() {
   return (
     <div>
       <Row gutter={[16, 16]}>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card>
             <Statistic
               title="Bot 状态"
@@ -70,7 +69,7 @@ export default function DashboardPage() {
             </Tag>
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card>
             <Statistic
               title="未实现盈亏"
@@ -82,7 +81,7 @@ export default function DashboardPage() {
             />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card>
             <Statistic
               title="总敞口"
@@ -96,7 +95,7 @@ export default function DashboardPage() {
             </span>
           </Card>
         </Col>
-        <Col span={6}>
+        <Col xs={12} sm={12} md={6}>
           <Card>
             <Statistic
               title="最大回撤"
@@ -113,7 +112,7 @@ export default function DashboardPage() {
       </Row>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col span={16}>
+        <Col xs={24} lg={16}>
           <Card title="权益曲线（30 天）" extra={<Tag color={risk?.kill_switch ? 'red' : 'green'}>{risk?.kill_switch ? 'KILL SWITCH ON' : '风控正常'}</Tag>}>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={equity}>
@@ -127,7 +126,7 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </Card>
         </Col>
-        <Col span={8}>
+        <Col xs={24} lg={8}>
           <Card title="风控状态">
             <Statistic
               title="每日亏损"
@@ -151,12 +150,18 @@ export default function DashboardPage() {
         </Col>
       </Row>
 
-      <Card title="当前持仓" style={{ marginTop: 16 }}>
+      <Card
+        title={status?.bot_running && status?.dry_run ? '模拟持仓（dry-run）' : '当前持仓'}
+        extra={status?.bot_running && status?.dry_run ? <Tag color="blue">DRY-RUN</Tag> : undefined}
+        style={{ marginTop: 16 }}
+      >
         <Table
           dataSource={positions}
-          rowKey="symbol"
+          rowKey={(r) => `${r.symbol}-${r.side}`}
           pagination={false}
           size="small"
+          scroll={{ x: 640 }}
+          locale={{ emptyText: status?.bot_running ? '暂无持仓，等待策略开仓…' : 'Bot 未运行或无持仓' }}
           columns={[
             { title: '币种', dataIndex: 'symbol', key: 'symbol' },
             {

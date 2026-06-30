@@ -11,13 +11,73 @@ from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
+from quant_guard.api.auth import (
+    AuthStatus,
+    LoginRequest,
+    LoginResponse,
+    RegisterRequest,
+    authenticate_user,
+    cors_allowed_origins,
+    create_access_token,
+    decode_token,
+    extract_bearer_token,
+    is_auth_enabled,
+    is_register_allowed,
+    register_user,
+    should_require_auth,
+    validate_auth_config,
+)
+from quant_guard.api.user_context import (
+    credentials_configured,
+    get_exchange_service,
+    get_okx_client,
+    reset_current_user,
+    set_current_user,
+)
 from quant_guard.backtest.report import _max_drawdown_pct, _profit_total_pct
+
+# 尽早加载 .env，供 CORS / 鉴权配置读取
+_ENV_PATH = Path(".env")
+if _ENV_PATH.exists():
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(_ENV_PATH)
+    except ImportError:
+        pass
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """保护 /api/*（登录/注册接口除外），并注入当前用户上下文。"""
+
+    async def dispatch(self, request, call_next):
+        token = extract_bearer_token(request)
+        user = decode_token(token) if token else None
+        ctx_tokens = None
+
+        if should_require_auth(request.url.path):
+            if not user:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "未登录或登录已过期"},
+                )
+
+        if user:
+            ctx_tokens = set_current_user(user.username, user.user_id)
+
+        try:
+            return await call_next(request)
+        finally:
+            if ctx_tokens is not None:
+                reset_current_user(ctx_tokens)
+
 
 app = FastAPI(
     title="Crypto Quant System API",
@@ -25,10 +85,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS：允许前端开发跨域
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=cors_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -125,6 +185,7 @@ class BotStatusResponse(BaseModel):
     started_at: Optional[str] = None
     last_error: Optional[str] = None
     log_tail: list[str] = []
+    dryrun_summary: Optional[dict] = None
 
 
 class BacktestSummary(BaseModel):
@@ -178,25 +239,16 @@ class PositionHistory(BaseModel):
     close_time: str
 
 
-# ---------- 全局状态（TODO: 后续任务接入真实 quant_guard 模块）----------
+# ---------- 全局状态 ----------
 
 _RISK_CONFIG = RiskConfig()
-_RISK_STATE = RiskState(
-    kill_switch=False,
-    kill_switch_reason=None,
-    max_leverage=5,
-    max_total_notional=1000,
-    current_total_notional=0,
-    equity_high_watermark=1000,
-    current_equity=1000,
-    max_drawdown_pct=0,
-    daily_start_equity=1000,
-    daily_loss_pct=0,
-    daily_loss_limit_pct=5,
-)
 _BOT_RUNNING = False
 _START_TIME: Optional[datetime] = None
 _ALERTS: list[AlertEvent] = []
+
+from quant_guard.services.control_service import control_service  # noqa: E402
+
+control_service.update_config(_RISK_CONFIG.model_dump())
 
 BACKTEST_RESULTS_DIR = Path("user_data/backtest_results")
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -279,15 +331,19 @@ def _query_positions_history(
     return [PositionHistory(**r) for r in rows]
 
 
-def _get_okx_client():
-    """获取 OKX 私有客户端，未配置密钥时抛 HTTPException。"""
-    from quant_guard.exchange.okx_client import OKXClient, OKXClientError
+def _load_okx_position_history(*, limit: int = 50, fetch_all: bool = False) -> list[PositionHistory]:
+    """统一从 OKX 拉取历史持仓。"""
+    client = get_okx_client()
+    history = client.get_positions_history(
+        limit=0 if fetch_all else limit,
+        fetch_all=fetch_all,
+    )
+    return [_position_history_to_api(h) for h in history]
 
-    _load_dotenv()
-    try:
-        return OKXClient(public_only=False)
-    except OKXClientError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
+
+def _get_okx_client():
+    """兼容旧调用：委托给按用户隔离的客户端工厂。"""
+    return get_okx_client()
 
 
 def _add_alert(level: str, alert_type: str, message: str) -> None:
@@ -302,7 +358,85 @@ def _add_alert(level: str, alert_type: str, message: str) -> None:
         _ALERTS[:] = _ALERTS[:500]
 
 
+# ---------- 登录鉴权 API ----------
+
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+def auth_login(body: LoginRequest):
+    """用户名密码登录，返回 JWT。"""
+    if not is_auth_enabled():
+        raise HTTPException(status_code=400, detail="未启用登录验证")
+    user = authenticate_user(body.username, body.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token, expires_in = create_access_token(user.username, user.user_id)
+    return LoginResponse(
+        access_token=token,
+        expires_in=expires_in,
+        username=user.username,
+        user_id=user.user_id,
+    )
+
+
+@app.post("/api/auth/register", response_model=LoginResponse)
+def auth_register(body: RegisterRequest):
+    """注册新用户并自动登录。"""
+    if not is_auth_enabled():
+        raise HTTPException(status_code=400, detail="未启用登录验证")
+    if not is_register_allowed():
+        raise HTTPException(status_code=403, detail="当前未开放注册")
+    try:
+        user = register_user(body.username, body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    token, expires_in = create_access_token(user.username, user.user_id)
+    return LoginResponse(
+        access_token=token,
+        expires_in=expires_in,
+        username=user.username,
+        user_id=user.user_id,
+    )
+
+
+@app.get("/api/auth/status", response_model=AuthStatus)
+def auth_status(request: Request):
+    """查询鉴权是否启用及当前请求是否已登录。"""
+    if not is_auth_enabled():
+        return AuthStatus(enabled=False, authenticated=True, allow_register=False)
+    token = extract_bearer_token(request)
+    user = decode_token(token or "")
+    return AuthStatus(
+        enabled=True,
+        authenticated=bool(user),
+        allow_register=is_register_allowed(),
+        username=user.username if user else None,
+        user_id=user.user_id if user else None,
+        has_exchange_credentials=credentials_configured() if user else False,
+    )
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    """当前登录用户信息。"""
+    if not is_auth_enabled():
+        return {"username": "local", "user_id": None, "has_exchange_credentials": True}
+    token = extract_bearer_token(request)
+    user = decode_token(token or "")
+    if not user:
+        raise HTTPException(status_code=401, detail="未登录")
+    return {
+        "username": user.username,
+        "user_id": user.user_id,
+        "has_exchange_credentials": credentials_configured(),
+    }
+
+
 # ---------- 仪表盘 API ----------
+
+
+@app.on_event("startup")
+def _wire_control_service() -> None:
+    control_service.set_alert_callback(_add_alert)
 
 
 @app.get("/api/status", response_model=SystemStatus)
@@ -332,7 +466,26 @@ def get_status():
 
 @app.get("/api/positions", response_model=list[Position])
 def get_positions():
-    """获取当前持仓（接入 OKXClient）。"""
+    """获取当前持仓。dry-run 运行时读 Freqtrade 模拟库，否则读 OKX。"""
+    from quant_guard.services.dryrun_service import get_dryrun_open_trades
+    from quant_guard.services.freqtrade_service import freqtrade_service
+
+    bot = freqtrade_service.get_bot_state()
+    if bot.running and bot.dry_run:
+        return [
+            Position(
+                symbol=t.pair,
+                side=t.side,
+                contracts=t.amount,
+                entry_price=t.open_rate,
+                mark_price=t.mark_price,
+                leverage=t.leverage,
+                unrealized_pnl=t.unrealized_pnl,
+                liquidation_price=t.liquidation_price,
+            )
+            for t in get_dryrun_open_trades()
+        ]
+
     try:
         client = _get_okx_client()
         positions = client.get_positions()
@@ -349,7 +502,9 @@ def get_positions():
             )
             for p in positions
         ]
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code == 400:
+            return []
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取持仓失败: {e}") from e
@@ -372,11 +527,7 @@ def get_positions_history(
 ):
     """获取历史持仓（已平仓记录）。支持筛选与排序。"""
     try:
-        client = _get_okx_client()
-        history = client.get_positions_history(
-            limit=0 if all else limit, fetch_all=all
-        )
-        rows = [_position_history_to_api(h) for h in history]
+        rows = _load_okx_position_history(limit=limit, fetch_all=all)
         return _query_positions_history(
             rows,
             symbol=symbol,
@@ -408,9 +559,7 @@ def analyze_positions_history(
     from quant_guard.services.trade_analysis_service import analyze_positions
 
     try:
-        client = _get_okx_client()
-        history = client.get_positions_history(limit=0 if all else 200, fetch_all=all)
-        rows = [_position_history_to_api(h) for h in history]
+        rows = _load_okx_position_history(limit=0 if all else 200, fetch_all=all)
         filtered = _query_positions_history(
             rows,
             symbol=symbol,
@@ -428,14 +577,37 @@ def analyze_positions_history(
 
 @app.get("/api/equity", response_model=list[EquityPoint])
 def get_equity(days: int = 30):
-    """获取权益曲线。当前为占位，后续接入 RiskState 历史。"""
-    return []
+    """从 OKX 历史持仓推算权益曲线。"""
+    from quant_guard.services.equity_service import (
+        compute_equity_curve,
+        infer_base_equity_from_balance,
+    )
+
+    try:
+        rows = _load_okx_position_history(fetch_all=True)
+        base = None
+        try:
+            client = _get_okx_client()
+            bal = client.get_usdt_balance()
+            base = infer_base_equity_from_balance(bal["free"], bal["used"])
+        except Exception:
+            pass
+        curve = compute_equity_curve(
+            [_position_history_to_dict(p) for p in rows],
+            days=days,
+            base_equity=base,
+        )
+        return [EquityPoint(**p) for p in curve]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"权益曲线计算失败: {e}") from e
 
 
 @app.get("/api/risk/state", response_model=RiskState)
 def get_risk_state():
     """获取风控状态。"""
-    return _RISK_STATE
+    return RiskState(**control_service.get_api_risk_state())
 
 
 # ---------- 回测 API ----------
@@ -478,10 +650,13 @@ def _job_to_response(job) -> BacktestJobResponse:
 
 @app.get("/api/backtest/timerange-default")
 def backtest_default_timerange():
-    """返回本地 K 线数据可用的默认 timerange。"""
+    """返回 Web 回测推荐的默认 timerange（最近 90 天）。"""
     from quant_guard.services.freqtrade_service import freqtrade_service
 
-    return {"timerange": freqtrade_service.infer_timerange_from_data()}
+    return {
+        "timerange": freqtrade_service.infer_timerange_for_web(90),
+        "full_range": freqtrade_service.infer_timerange_from_data(),
+    }
 
 
 @app.post("/api/backtest/run", response_model=BacktestJobResponse)
@@ -577,6 +752,11 @@ def start_bot(req: BotStartRequest = BotStartRequest()):
     from quant_guard.services.freqtrade_service import freqtrade_service
 
     global _BOT_RUNNING, _START_TIME
+    if control_service.is_kill_switch_active():
+        raise HTTPException(
+            status_code=403,
+            detail="Kill Switch 已激活，请先解除后再启动 Bot",
+        )
     try:
         state = freqtrade_service.start_bot(req.strategy)
     except RuntimeError as e:
@@ -607,9 +787,22 @@ def stop_bot():
 @app.get("/api/control/status", response_model=BotStatusResponse)
 def get_bot_status():
     """获取 Bot 进程真实状态。"""
+    from quant_guard.services.dryrun_service import get_dryrun_summary
     from quant_guard.services.freqtrade_service import freqtrade_service
 
     state = freqtrade_service.get_bot_state()
+    dryrun_summary = None
+    if state.running and state.dry_run:
+        s = get_dryrun_summary()
+        dryrun_summary = {
+            "wallet_balance": s.wallet_balance,
+            "starting_balance": s.starting_balance,
+            "open_trades": s.open_trades,
+            "closed_trades": s.closed_trades,
+            "total_unrealized_pnl": s.total_unrealized_pnl,
+            "total_realized_pnl": s.total_realized_pnl,
+            "total_stake": s.total_stake,
+        }
     return BotStatusResponse(
         running=state.running,
         pid=state.pid,
@@ -618,19 +811,16 @@ def get_bot_status():
         started_at=state.started_at,
         last_error=state.last_error,
         log_tail=freqtrade_service.get_log_tail(20),
+        dryrun_summary=dryrun_summary,
     )
 
 
 @app.post("/api/control/kill-switch")
 def activate_kill_switch(req: KillSwitchRequest):
-    """激活 Kill Switch。"""
-    global _RISK_STATE
-    _RISK_STATE = _RISK_STATE.model_copy(update={
-        "kill_switch": True,
-        "kill_switch_reason": req.reason,
-    })
+    """激活 Kill Switch（停止 Bot + 阻断新开仓）。"""
+    result = control_service.activate_kill_switch(req.reason)
     _add_alert("CRITICAL", "kill_switch_activated", f"Kill switch activated: {req.reason}")
-    return {"status": "kill_switch_activated", "reason": req.reason}
+    return result
 
 
 @app.post("/api/control/emergency-close")
@@ -639,9 +829,21 @@ def emergency_close(req: EmergencyCloseRequest):
     if not req.confirm:
         _add_alert("WARNING", "emergency_close_rejected", "Emergency close rejected: no confirmation")
         raise HTTPException(status_code=400, detail="confirmation required")
-    # TODO T3.5: 接入真实 emergency_close_all
-    _add_alert("CRITICAL", "emergency_close_executed", "Emergency close all executed via Web UI")
-    return {"status": "emergency_close_executed"}
+    result = control_service.emergency_close_all(reason="web_emergency_close")
+    _add_alert(
+        "CRITICAL",
+        "emergency_close_executed",
+        f"Emergency close: attempted={result.get('attempted', 0)} closed={result.get('closed', 0)} dry_run={result.get('dry_run')}",
+    )
+    return result
+
+
+@app.post("/api/control/kill-switch/deactivate")
+def deactivate_kill_switch():
+    """解除 Kill Switch。"""
+    result = control_service.deactivate_kill_switch()
+    _add_alert("INFO", "kill_switch_deactivated", "Kill switch deactivated via Web UI")
+    return result
 
 
 # ---------- 风控配置 API ----------
@@ -658,7 +860,8 @@ def update_risk_config(config: RiskConfig):
     """更新风控配置。"""
     global _RISK_CONFIG
     _RISK_CONFIG = config
-    _add_alert("INFO", "risk_config_updated", f"Risk config updated via Web UI")
+    control_service.update_config(config.model_dump())
+    _add_alert("INFO", "risk_config_updated", "Risk config updated via Web UI")
     return _RISK_CONFIG
 
 
@@ -841,14 +1044,14 @@ class EnvUpdateRequest(BaseModel):
 @app.get("/api/exchange/status")
 def exchange_status():
     """检查交易所连接状态。"""
-    from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
+    svc = get_exchange_service()
     conn = svc.test_connection()
     return {
         "connected": conn.connected,
         "exchange": conn.exchange,
         "error": conn.error,
         "account_mode": conn.account_mode,
+        "credentials_saved": credentials_configured(),
     }
 
 
@@ -869,7 +1072,7 @@ def exchange_config(req: EnvUpdateRequest):
 def exchange_balance():
     """获取账户余额。"""
     from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
+    svc = get_exchange_service()
     try:
         bal = svc.get_balance()
         return {"total": bal.total, "free": bal.free, "used": bal.used, "currency": bal.currency}
@@ -883,7 +1086,7 @@ def exchange_balance():
 def exchange_positions():
     """获取当前真实持仓。"""
     from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
+    svc = get_exchange_service()
     try:
         return svc.get_positions()
     except RuntimeError as e:
@@ -907,58 +1110,28 @@ def exchange_positions_history(
     min_pnl: Optional[float] = None,
     max_pnl: Optional[float] = None,
 ):
-    """获取历史持仓（已平仓记录）。支持筛选与排序。"""
-    from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
-    try:
-        history = svc.get_positions_history(
-            limit=0 if all else limit, fetch_all=all
-        )
-        rows = [
-            PositionHistory(
-                position_id=h.position_id,
-                symbol=h.symbol,
-                side=h.side,
-                leverage=h.leverage,
-                margin_mode=h.margin_mode,
-                open_avg_price=h.open_avg_price,
-                close_avg_price=h.close_avg_price,
-                close_size=h.close_size,
-                pnl=h.pnl,
-                realized_pnl=h.realized_pnl,
-                pnl_ratio=h.pnl_ratio,
-                fee=h.fee,
-                funding_fee=h.funding_fee,
-                close_type=h.close_type,
-                open_time=h.open_time,
-                close_time=h.close_time,
-            )
-            for h in history
-        ]
-        return _query_positions_history(
-            rows,
-            symbol=symbol,
-            side=side,
-            close_type=close_type,
-            start_time=start_time,
-            end_time=end_time,
-            position_ids=position_ids,
-            sort_by=sort_by,
-            order=order,
-            min_pnl=min_pnl,
-            max_pnl=max_pnl,
-        )
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取历史持仓失败: {e}")
+    """获取历史持仓（与 /api/positions/history 共用 OKX 数据源）。"""
+    return get_positions_history(
+        limit=limit,
+        all=all,
+        symbol=symbol,
+        side=side,
+        close_type=close_type,
+        start_time=start_time,
+        end_time=end_time,
+        position_ids=position_ids,
+        sort_by=sort_by,
+        order=order,
+        min_pnl=min_pnl,
+        max_pnl=max_pnl,
+    )
 
 
 @app.get("/api/exchange/trades")
 def exchange_trades(limit: int = 100):
     """获取历史交易记录。"""
     from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
+    svc = get_exchange_service()
     try:
         trades = svc.get_historical_trades(limit)
         return [
@@ -984,7 +1157,7 @@ def exchange_trades(limit: int = 100):
 def exchange_orders():
     """获取当前挂单。"""
     from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
+    svc = get_exchange_service()
     try:
         return svc.get_open_orders()
     except RuntimeError as e:
@@ -995,25 +1168,45 @@ def exchange_orders():
 
 @app.post("/api/exchange/test")
 def exchange_test(req: EnvUpdateRequest):
-    """设置 API Key 并测试连接（一步完成）。"""
-    import os
-    for key, value in req.vars.items():
-        if value:
-            os.environ[key] = value
-    from quant_guard.services.exchange_service import ExchangeService
-    svc = ExchangeService()
-    # 重置已缓存的连接
-    svc._exchange = None
-    svc._exchange_name = ""
+    """设置 API Key 并测试连接；注册用户会加密保存到账号。"""
+    from quant_guard.api.user_context import current_user_id
+    from quant_guard.services.user_store import UserCredentials, merge_credentials
+
+    user_id = current_user_id.get()
+    patch = UserCredentials(
+        okx_api_key=req.vars.get("OKX_API_KEY", ""),
+        okx_api_secret=req.vars.get("OKX_API_SECRET", ""),
+        okx_passphrase=req.vars.get("OKX_API_PASSPHRASE", ""),
+        gate_api_key=req.vars.get("GATE_API_KEY", ""),
+        gate_api_secret=req.vars.get("GATE_API_SECRET", ""),
+    )
+
+    if user_id is not None:
+        merge_credentials(user_id, patch)
+        svc = get_exchange_service()
+    else:
+        import os
+
+        for key, value in req.vars.items():
+            if value:
+                os.environ[key] = value
+        from quant_guard.services.exchange_service import ExchangeService
+
+        svc = ExchangeService()
+        svc._exchange = None
+        svc._exchange_name = ""
+
     conn = svc.test_connection()
     if conn.connected:
-        _add_alert("INFO", "exchange_connected", f"交易所 {conn.exchange} 连接成功")
+        who = "用户" if user_id is not None else "管理员"
+        _add_alert("INFO", "exchange_connected", f"{who} 连接 {conn.exchange} 成功")
     else:
         _add_alert("WARNING", "exchange_connect_failed", f"交易所连接失败: {conn.error}")
     return {
         "connected": conn.connected,
         "exchange": conn.exchange,
         "error": conn.error,
+        "credentials_saved": user_id is not None,
     }
 
 
@@ -1193,8 +1386,12 @@ def get_env():
 
 @app.on_event("startup")
 def on_startup():
-    """启动时加载 .env 并记录。"""
+    """启动时加载 .env、初始化用户库、校验鉴权配置并记录。"""
     _load_dotenv()
+    from quant_guard.services.user_store import init_db
+
+    init_db()
+    validate_auth_config()
     _add_alert("INFO", "api_started", "FastAPI backend started")
 
 

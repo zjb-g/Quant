@@ -1,5 +1,6 @@
 """Tests for freqtrade_service."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -24,6 +25,10 @@ def svc(tmp_path, monkeypatch):
         userdir / "backtest_results",
     )
     monkeypatch.setattr("quant_guard.services.freqtrade_service.LOG_DIR", userdir / "logs")
+    monkeypatch.setattr(
+        "quant_guard.services.freqtrade_service.PID_FILE",
+        userdir / "logs" / "freqtrade.pid",
+    )
     monkeypatch.setattr(
         "quant_guard.services.freqtrade_service.BACKTEST_CONFIG",
         tmp_path / "config.binance.json",
@@ -59,6 +64,16 @@ def test_run_backtest_sync_success(mock_run, svc, tmp_path):
 
 
 @patch("quant_guard.services.freqtrade_service.subprocess.run")
+def test_run_backtest_sync_exit2_with_result(mock_run, svc):
+    """exit 2 + 结果文件存在时视为成功（ccxt 退出噪音）。"""
+    mock_run.return_value = MagicMock(returncode=2, stdout="", stderr="asyncio - ERROR - Unclosed connector")
+    with patch.object(svc, "_latest_backtest_id", return_value="20260630-100000"):
+        job = svc.run_backtest_sync("EmaCrossoverStrategy", "20250601-20250615")
+    assert job.status == JobStatus.DONE
+    assert job.result_id == "20260630-100000"
+
+
+@patch("quant_guard.services.freqtrade_service.subprocess.run")
 def test_run_backtest_sync_failure(mock_run, svc):
     mock_run.return_value = MagicMock(returncode=2, stdout="", stderr="No data")
     job = svc.run_backtest_sync("EmaCrossoverStrategy", "20250601-20250615")
@@ -70,3 +85,20 @@ def test_get_bot_state_default(svc):
     state = svc.get_bot_state()
     assert state.running is False
     assert state.dry_run is True
+
+
+def test_get_bot_state_recovers_from_pid_file(svc, tmp_path, monkeypatch):
+    log_dir = tmp_path / "user_data" / "logs"
+    log_dir.mkdir(parents=True)
+    monkeypatch.setattr("quant_guard.services.freqtrade_service.LOG_DIR", log_dir)
+    monkeypatch.setattr("quant_guard.services.freqtrade_service.PID_FILE", log_dir / "freqtrade.pid")
+
+    pid_file = log_dir / "freqtrade.pid"
+    pid_file.write_text(str(os.getpid()), encoding="utf-8")
+
+    with patch.object(svc, "_strategy_from_pid", return_value="FiftyTwoWeekHighApproachStrategy"):
+        state = svc.get_bot_state()
+
+    assert state.running is True
+    assert state.pid == os.getpid()
+    assert state.strategy == "FiftyTwoWeekHighApproachStrategy"

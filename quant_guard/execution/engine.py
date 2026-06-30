@@ -155,20 +155,41 @@ class ExecutionEngine:
         self.idempotency.mark_submitted(order.client_order_id)
         logger.info("live order: %s %s %s", order.symbol, order.side.value, order.amount)
 
-        # TODO: 接入真实 OKXClient 下单
-        # raw = self.exchange.create_order(...)
-        # return OrderResult(...)
+        try:
+            from quant_guard.exchange.models import Side
 
-        return OrderResult(
-            client_order_id=order.client_order_id,
-            exchange_order_id=None,
-            status=OrderStatus.PENDING,
-            symbol=order.symbol,
-            side=order.side,
-            amount=order.amount,
-            error="live order not yet implemented (awaiting OKXClient integration)",
-            timestamp=int(datetime.now(timezone.utc).timestamp() * 1000),
-        )
+            if order.reduce_only:
+                pos_side = Side.LONG if order.side == OrderSide.SELL else Side.SHORT
+                raw = self.exchange.create_reduce_only_market_order(
+                    order.symbol, pos_side, order.amount
+                )
+            else:
+                raise RuntimeError("non reduce-only live orders not implemented yet")
+
+            return OrderResult(
+                client_order_id=order.client_order_id,
+                exchange_order_id=str(raw.get("id", "")),
+                status=OrderStatus.FILLED,
+                symbol=order.symbol,
+                side=order.side,
+                amount=order.amount,
+                filled_amount=float(raw.get("filled", order.amount) or order.amount),
+                avg_price=float(raw.get("average", order.price or 0) or 0),
+                fee=float((raw.get("fee") or {}).get("cost", 0) or 0),
+                timestamp=int(raw.get("timestamp", 0) or 0),
+            )
+        except Exception as exc:
+            logger.exception("live order failed: %s", exc)
+            return OrderResult(
+                client_order_id=order.client_order_id,
+                exchange_order_id=None,
+                status=OrderStatus.REJECTED,
+                symbol=order.symbol,
+                side=order.side,
+                amount=order.amount,
+                error=str(exc),
+                timestamp=int(datetime.now(timezone.utc).timestamp() * 1000),
+            )
 
     def sync_state_from_exchange(self) -> dict:
         """重启后从交易所同步状态（T4.4）。

@@ -24,6 +24,9 @@ def _load_dotenv() -> None:
             pass
 
 
+from quant_guard.services.user_store import UserCredentials
+
+
 @dataclass
 class ExchangeConnection:
     """交易所连接状态。"""
@@ -83,13 +86,32 @@ class HistoricalPosition:
 class ExchangeService:
     """交易所数据服务。
 
-    从环境变量读取 API Key 连接交易所。
-    支持查询：连接状态、余额、持仓、历史交易。
+    从环境变量或构造参数读取 API Key。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, credentials: Optional[UserCredentials] = None) -> None:
+        self._credentials = credentials
         self._exchange: Optional[ccxt.Exchange] = None
         self._exchange_name = ""
+
+    def _resolve_keys(self, exchange_name: str) -> tuple[str, str, str]:
+        prefix = exchange_name.upper()
+        if self._credentials:
+            if exchange_name == "okx":
+                return (
+                    self._credentials.okx_api_key,
+                    self._credentials.okx_api_secret,
+                    self._credentials.okx_passphrase,
+                )
+            return (
+                self._credentials.gate_api_key,
+                self._credentials.gate_api_secret,
+                "",
+            )
+        api_key = os.environ.get(f"{prefix}_API_KEY", "")
+        api_secret = os.environ.get(f"{prefix}_API_SECRET", "")
+        passphrase = os.environ.get(f"{prefix}_API_PASSPHRASE", "")
+        return api_key, api_secret, passphrase
 
     def _get_exchange(self) -> ccxt.Exchange:
         """获取或创建交易所连接。"""
@@ -98,11 +120,8 @@ class ExchangeService:
 
         _load_dotenv()
         for name in ["okx", "gate"]:
-            api_key = os.environ.get(f"{name.upper()}_API_KEY", "")
-            api_secret = os.environ.get(f"{name.upper()}_API_SECRET", "")
-            passphrase = os.environ.get(f"{name.upper()}_API_PASSPHRASE", "")
+            api_key, api_secret, passphrase = self._resolve_keys(name)
 
-            # OKX 需要 passphrase，gate 不需要
             if name == "okx" and not all([api_key, api_secret, passphrase]):
                 continue
             if name == "gate" and not all([api_key, api_secret]):
@@ -208,7 +227,16 @@ class ExchangeService:
 
         from quant_guard.exchange.okx_client import OKXClient
 
-        client = OKXClient(public_only=False)
+        creds = self._credentials
+        if creds and creds.okx_complete:
+            client = OKXClient(
+                public_only=False,
+                api_key=creds.okx_api_key,
+                api_secret=creds.okx_api_secret,
+                passphrase=creds.okx_passphrase,
+            )
+        else:
+            client = OKXClient(public_only=False)
         raw = client.get_positions_history(limit=limit, fetch_all=fetch_all)
 
         def _fmt_ts(ms: int) -> str:

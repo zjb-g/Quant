@@ -12,6 +12,39 @@ from typing import List, Optional
 
 STRATEGIES_DIR = Path("user_data/strategies")
 
+_ANNOTATION_NAMES = frozenset({"datetime", "timedelta", "date", "time"})
+
+
+def _collect_imported_names(tree: ast.AST) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                base = (alias.asname or alias.name).split(".")[0]
+                names.add(base)
+    return names
+
+
+def _check_annotation_imports(content: str) -> tuple[bool, str]:
+    """检测类型注解中引用了未导入的名称（常见导致策略加载失败）。"""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError as e:
+        return True, str(e)
+
+    imported = _collect_imported_names(tree)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for arg in (*node.args.args, *node.args.kwonlyargs):
+            ann = arg.annotation
+            if isinstance(ann, ast.Name) and ann.id in _ANNOTATION_NAMES and ann.id not in imported:
+                return True, f"name '{ann.id}' is not defined"
+    return False, ""
+
 
 @dataclass
 class StrategyInfo:
@@ -66,6 +99,12 @@ def _parse_strategy_file(path: Path) -> StrategyInfo:
     except SyntaxError as e:
         has_errors = True
         error_msg = str(e)
+
+    if not has_errors:
+        import_err, import_msg = _check_annotation_imports(content)
+        if import_err:
+            has_errors = True
+            error_msg = import_msg
 
     # 提取文件头注释作为描述
     lines = content.split("\n")

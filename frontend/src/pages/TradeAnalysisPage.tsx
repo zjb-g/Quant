@@ -171,10 +171,10 @@ export default function TradeAnalysisPage() {
           {stats && stats.total_trades > 0 ? (
             <>
               <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col span={4}>
+                <Col xs={12} sm={8} md={4}>
                   <Card><Statistic title="总交易" value={stats.total_trades} /></Card>
                 </Col>
-                <Col span={4}>
+                <Col xs={12} sm={8} md={4}>
                   <Card>
                     <Statistic
                       title="胜率"
@@ -185,7 +185,7 @@ export default function TradeAnalysisPage() {
                     />
                   </Card>
                 </Col>
-                <Col span={4}>
+                <Col xs={12} sm={8} md={4}>
                   <Card>
                     <Statistic
                       title="总盈亏"
@@ -196,13 +196,13 @@ export default function TradeAnalysisPage() {
                     />
                   </Card>
                 </Col>
-                <Col span={4}>
+                <Col xs={12} sm={8} md={4}>
                   <Card><Statistic title="盈亏比" value={stats.profit_factor} precision={2} /></Card>
                 </Col>
-                <Col span={4}>
+                <Col xs={12} sm={8} md={4}>
                   <Card><Statistic title="均持仓(h)" value={stats.avg_holding_hours} precision={1} /></Card>
                 </Col>
-                <Col span={4}>
+                <Col xs={12} sm={8} md={4}>
                   <Card>
                     <Statistic title="手续费+资金费" value={stats.total_fee + stats.total_funding_fee} precision={2} suffix="U" />
                   </Card>
@@ -210,7 +210,7 @@ export default function TradeAnalysisPage() {
               </Row>
 
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <Card title="多空胜率对比" size="small">
                     <ResponsiveContainer width="100%" height={260}>
                       <BarChart data={sideChartData}>
@@ -226,7 +226,7 @@ export default function TradeAnalysisPage() {
                     </ResponsiveContainer>
                   </Card>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <Card title="杠杆分组表现" size="small">
                     <ResponsiveContainer width="100%" height={260}>
                       <BarChart data={leverageChartData}>
@@ -244,16 +244,16 @@ export default function TradeAnalysisPage() {
               </Row>
 
               <Row gutter={16} style={{ marginTop: 16 }}>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <BucketTable title="持仓时长分组" data={stats.by_holding} />
                 </Col>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <BucketTable title="平仓类型分组" data={stats.by_close_type} />
                 </Col>
               </Row>
 
               <Row gutter={16}>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <Card title="最佳 / 最差单笔" size="small">
                     <Space direction="vertical">
                       <div>
@@ -275,7 +275,7 @@ export default function TradeAnalysisPage() {
                     </Space>
                   </Card>
                 </Col>
-                <Col span={12}>
+                <Col xs={24} md={12}>
                   <BucketTable title="币种分布" data={stats.by_symbol} />
                 </Col>
               </Row>

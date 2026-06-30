@@ -1,12 +1,64 @@
 import axios from 'axios'
 
+const AUTH_TOKEN_KEY = 'quant_auth_token'
+
 // API 客户端：统一基础路径 /api（开发时由 vite proxy 转发到 FastAPI）
 const api = axios.create({
   baseURL: '/api',
   timeout: 15000,
 })
 
+export function getAuthToken(): string | null {
+  return localStorage.getItem(AUTH_TOKEN_KEY)
+}
+
+export function setAuthToken(token: string) {
+  localStorage.setItem(AUTH_TOKEN_KEY, token)
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(AUTH_TOKEN_KEY)
+}
+
+api.interceptors.request.use((config) => {
+  const token = getAuthToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status
+    const path = window.location.pathname
+    if (status === 401 && !path.startsWith('/login')) {
+      clearAuthToken()
+      if (!path.startsWith('/login')) {
+        window.location.href = '/login'
+      }
+    }
+    return Promise.reject(error)
+  },
+)
+
 // ---------- 类型定义 ----------
+
+export interface AuthStatus {
+  enabled: boolean
+  authenticated: boolean
+  allow_register?: boolean
+  username?: string | null
+  user_id?: number | null
+  has_exchange_credentials?: boolean
+}
+
+export interface LoginResult {
+  access_token: string
+  token_type: string
+  expires_in: number
+}
 
 export interface SystemStatus {
   bot_running: boolean
@@ -98,6 +150,16 @@ export interface BacktestJob {
   finished_at?: string
 }
 
+export interface DryRunSummary {
+  wallet_balance: number
+  starting_balance: number
+  open_trades: number
+  closed_trades: number
+  total_unrealized_pnl: number
+  total_realized_pnl: number
+  total_stake: number
+}
+
 export interface BotStatus {
   running: boolean
   pid?: number | null
@@ -106,6 +168,7 @@ export interface BotStatus {
   started_at?: string | null
   last_error?: string | null
   log_tail: string[]
+  dryrun_summary?: DryRunSummary | null
 }
 
 export interface BacktestTrade {
@@ -241,6 +304,12 @@ export interface AiTradeAnalysisResponse {
 // ---------- API 函数 ----------
 
 export const apiClient = {
+  authStatus: () => api.get<AuthStatus>('/auth/status').then((r) => r.data),
+  login: (username: string, password: string) =>
+    api.post<LoginResult>('/auth/login', { username, password }).then((r) => r.data),
+  register: (username: string, password: string) =>
+    api.post<LoginResult>('/auth/register', { username, password }).then((r) => r.data),
+
   // 仪表盘
   getSystemStatus: () => api.get<SystemStatus>('/status').then((r) => r.data),
   getPositions: () => api.get<Position[]>('/positions', { timeout: 8000 }).then((r) => r.data),
@@ -276,7 +345,7 @@ export const apiClient = {
 
   // 控制
   startBot: (strategy = 'EmaCrossoverStrategy') =>
-    api.post('/control/start', { strategy }).then((r) => r.data),
+    api.post('/control/start', { strategy }, { timeout: 120000 }).then((r) => r.data),
   stopBot: () => api.post('/control/stop').then((r) => r.data),
   getBotStatus: () => api.get<BotStatus>('/control/status').then((r) => r.data),
   activateKillSwitch: (reason: string) =>

@@ -13,6 +13,7 @@ import {
   type ChartSymbolInfo,
   type PositionHistory,
 } from '../api/client'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 type ChartLib = typeof import('lightweight-charts')
 type IChartApi = import('lightweight-charts').IChartApi
@@ -99,6 +100,7 @@ export default function TradeReviewPage() {
   const [tableTimeRange, setTableTimeRange] = useState<[Dayjs, Dayjs] | null>(null)
   const [tableSortBy, setTableSortBy] = useState<'close_time' | 'pnl'>('close_time')
   const [tableOrder, setTableOrder] = useState<'asc' | 'desc'>('desc')
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     apiClient.getChartSymbols()
@@ -391,10 +393,10 @@ export default function TradeReviewPage() {
 
         {data && (
           <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Statistic title="图表内笔数" value={chartStats.count} />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Statistic
                 title="图表合计盈亏"
                 value={data.total_pnl}
@@ -403,16 +405,16 @@ export default function TradeReviewPage() {
                 valueStyle={{ color: data.total_pnl >= 0 ? '#3f8600' : '#cf1322' }}
               />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Statistic title="盈利 / 亏损" value={`${chartStats.winCount} / ${chartStats.lossCount}`} />
             </Col>
-            <Col span={6}>
+            <Col xs={12} sm={6}>
               <Statistic title={`数据源 · ${data.interval}`} value={data.data_source} />
             </Col>
           </Row>
         )}
         <Spin spinning={loading} tip="加载 K 线与标注中...">
-          <div ref={chartRef} style={{ width: '100%', minHeight: 480 }} />
+          <div ref={chartRef} style={{ width: '100%', minHeight: isMobile ? 300 : 480 }} />
         </Spin>
       </Card>
 
@@ -462,6 +464,7 @@ export default function TradeReviewPage() {
           rowKey={positionRowKey}
           size="small"
           loading={tableLoading}
+          scroll={{ x: 900 }}
           rowSelection={markerMode === 'selected' ? rowSelection : undefined}
           pagination={{ pageSize: 15, showTotal: (t) => `共 ${t} 笔` }}
           onRow={(record) => ({

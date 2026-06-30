@@ -100,7 +100,7 @@ export default function ExchangePage() {
   return (
     <div>
       <Row gutter={[16, 16]}>
-        <Col span={8}>
+        <Col xs={24} md={8}>
           <Card title={<span><ApiOutlined /> 交易所连接</span>}>
             <div style={{ marginBottom: 16 }}>
               {connected ? (
@@ -117,11 +117,11 @@ export default function ExchangePage() {
             <Button icon={<ReloadOutlined />} onClick={loadStatus} block>刷新状态</Button>
           </Card>
         </Col>
-        <Col span={16}>
+        <Col xs={24} md={16}>
           <Card title={<span><LinkOutlined /> 配置 API Key</span>}>
             <Alert
-              message="API Key 仅保存在内存中，不会写入文件或代码库。重启后需重新输入。"
-              type="warning"
+              message="API Key 将加密保存到您的账号（注册用户），仅用于拉取您自己的持仓与复盘数据。"
+              type="info"
               style={{ marginBottom: 16 }}
             />
             <Form form={form} layout="vertical" onFinish={handleConnect}>
@@ -165,13 +165,13 @@ export default function ExchangePage() {
                 <Card>
                   {balance ? (
                     <Row gutter={16}>
-                      <Col span={8}>
+                      <Col xs={24} sm={8}>
                         <Statistic title="总余额" value={balance.total} precision={2} suffix={balance.currency} />
                       </Col>
-                      <Col span={8}>
+                      <Col xs={24} sm={8}>
                         <Statistic title="可用余额" value={balance.free} precision={2} suffix={balance.currency} />
                       </Col>
-                      <Col span={8}>
+                      <Col xs={24} sm={8}>
                         <Statistic title="已用保证金" value={balance.used} precision={2} suffix={balance.currency} />
                       </Col>
                     </Row>
@@ -191,6 +191,7 @@ export default function ExchangePage() {
                     rowKey={(r) => `${r.symbol}-${r.side}`}
                     size="small"
                     pagination={false}
+                    scroll={{ x: 720 }}
                     columns={[
                       { title: '币种', dataIndex: 'symbol', key: 'symbol' },
                       {
@@ -224,6 +225,7 @@ export default function ExchangePage() {
                     dataSource={positionHistory}
                     rowKey={(r) => `${r.position_id}::${r.close_time}`}
                     size="small"
+                    scroll={{ x: 960 }}
                     pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
                     columns={[
                       { title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 180,
@@ -268,6 +270,7 @@ export default function ExchangePage() {
                     dataSource={trades}
                     rowKey="id"
                     size="small"
+                    scroll={{ x: 720 }}
                     pagination={{ pageSize: 20 }}
                     columns={[
                       { title: '时间', dataIndex: 'timestamp', key: 'ts', width: 180,

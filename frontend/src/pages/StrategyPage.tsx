@@ -170,6 +170,7 @@ export default function StrategyPage() {
           rowKey="filename"
           loading={loading}
           pagination={false}
+          scroll={{ x: 720 }}
           columns={[
             {
               title: '文件名',

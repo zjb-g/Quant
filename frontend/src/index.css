@@ -6,8 +6,63 @@
 body {
   margin: 0;
   min-height: 100vh;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* 手机端通用 */
+@media (max-width: 767px) {
+  .app-content .ant-card-head-title {
+    font-size: 15px;
+    white-space: normal;
+    line-height: 1.4;
+  }
+
+  .app-content .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-content .ant-statistic-title {
+    font-size: 12px;
+  }
+
+  .app-content .ant-statistic-content {
+    font-size: 20px;
+  }
+
+  .app-content .ant-btn {
+    min-height: 36px;
+  }
+
+  .app-content .ant-space-horizontal {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .app-content .ant-picker-range {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .mobile-full-width {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+/* iOS 安全区 */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  .app-header {
+    padding-top: env(safe-area-inset-top);
+  }
 }

@@ -56,6 +56,9 @@ class OKXClient:
         public_only: bool = True,
         timeout_ms: int = 10000,
         max_retries: int = 3,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+        passphrase: Optional[str] = None,
     ) -> None:
         self.public_only = public_only
         self.timeout_ms = timeout_ms
@@ -68,17 +71,17 @@ class OKXClient:
         }
 
         if not public_only:
-            api_key = os.environ.get("OKX_API_KEY")
-            api_secret = os.environ.get("OKX_API_SECRET")
-            passphrase = os.environ.get("OKX_API_PASSPHRASE")
-            if not all([api_key, api_secret, passphrase]):
+            resolved_key = api_key or os.environ.get("OKX_API_KEY")
+            resolved_secret = api_secret or os.environ.get("OKX_API_SECRET")
+            resolved_pass = passphrase or os.environ.get("OKX_API_PASSPHRASE")
+            if not all([resolved_key, resolved_secret, resolved_pass]):
                 raise OKXClientError(
-                    "private mode requires OKX_API_KEY / OKX_API_SECRET / "
-                    "OKX_API_PASSPHRASE environment variables"
+                    "private mode requires OKX API credentials "
+                    "(environment variables or constructor arguments)"
                 )
-            params["apiKey"] = api_key
-            params["secret"] = api_secret
-            params["password"] = passphrase
+            params["apiKey"] = resolved_key
+            params["secret"] = resolved_secret
+            params["password"] = resolved_pass
 
         self._exchange = ccxt.okx(params)
 
@@ -244,6 +247,18 @@ class OKXClient:
             )
         return positions
 
+    def get_usdt_balance(self) -> dict:
+        """获取 USDT 余额摘要。public-only 模式下禁止调用。"""
+        if self.public_only:
+            raise OKXClientError("get_usdt_balance requires private mode")
+        raw = self._call(self._exchange.fetch_balance)
+        usdt = raw.get("USDT", {}) or {}
+        return {
+            "total": float(usdt.get("total", 0) or 0),
+            "free": float(usdt.get("free", 0) or 0),
+            "used": float(usdt.get("used", 0) or 0),
+        }
+
     def get_positions_history(
         self,
         symbols: Optional[List[str]] = None,
@@ -333,3 +348,24 @@ class OKXClient:
             last_after = after
 
         return results
+
+    def create_reduce_only_market_order(
+        self, symbol: str, position_side: Side, amount: float
+    ) -> dict:
+        """发送 reduce-only 市价平仓单。public-only 模式下禁止调用。"""
+        if self.public_only:
+            raise OKXClientError(
+                "create_reduce_only_market_order requires private mode"
+            )
+        if amount <= 0:
+            raise OKXClientError("close amount must be positive")
+        order_side = "sell" if position_side == Side.LONG else "buy"
+        return self._call(
+            self._exchange.create_order,
+            symbol,
+            "market",
+            order_side,
+            amount,
+            None,
+            {"reduceOnly": True},
+        )

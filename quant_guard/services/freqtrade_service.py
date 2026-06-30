@@ -36,6 +36,41 @@ DEFAULT_PAIRS = [
     "XRP/USDT:USDT",
 ]
 
+# Freqtrade 2026 + ccxt 在进程退出时可能返回 2，但回测结果已写入
+_BENIGN_EXIT_CODES = {0, 2}
+
+
+def _extract_backtest_error(output: str) -> str:
+    """从 Freqtrade 输出中提取真正的 ERROR 行，忽略末尾 ccxt/asyncio 噪音。"""
+    lines = output.replace("\r", "").splitlines()
+    errors = [
+        ln.strip()
+        for ln in lines
+        if " - ERROR - " in ln and "Unclosed connector" not in ln
+    ]
+    if errors:
+        return errors[-1][:500]
+    for ln in reversed(lines):
+        if "Impossible to load Strategy" in ln or "Please migrate" in ln:
+            return ln.strip()[:500]
+    tail = output.strip()[-600:]
+    return tail or "回测失败（未知原因）"
+
+
+def _read_latest_result_id() -> Optional[str]:
+    """读取 Freqtrade 写入的 .last_result.json。"""
+    marker = BACKTEST_RESULTS_DIR / ".last_result.json"
+    if not marker.exists():
+        return None
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+        name = data.get("latest_backtest", "")
+        if name.startswith("backtest-result-") and name.endswith(".zip"):
+            return name.replace("backtest-result-", "").replace(".zip", "")
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
 
 class JobStatus(str, Enum):
     PENDING = "pending"
@@ -113,11 +148,22 @@ class FreqtradeService:
         return tmp
 
     def _latest_backtest_id(self, before: set[str]) -> Optional[str]:
+        rid = _read_latest_result_id()
+        if rid and rid not in before:
+            return rid
         if not BACKTEST_RESULTS_DIR.exists():
             return None
         after = {f.stem.replace("backtest-result-", "") for f in BACKTEST_RESULTS_DIR.glob("backtest-result-*.zip")}
         new_ids = sorted(after - before)
         return new_ids[-1] if new_ids else None
+
+    def infer_timerange_for_web(self, days: int = 90) -> str:
+        """Web 回测默认时间范围：最近 N 天（避免一次回测数年导致超时）。"""
+        from datetime import timedelta
+
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=days)
+        return f"{start.strftime('%Y%m%d')}-{end.strftime('%Y%m%d')}"
 
     def start_backtest_async(
         self,
@@ -192,11 +238,23 @@ class FreqtradeService:
                 text=True,
                 timeout=timeout,
             )
-            if proc.returncode != 0:
-                tail = (proc.stderr or proc.stdout or "")[-800:]
-                raise RuntimeError(f"回测失败 (exit {proc.returncode}): {tail}")
-
+            combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
             result_id = self._latest_backtest_id(existing)
+
+            if not result_id:
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"回测失败 (exit {proc.returncode}): {_extract_backtest_error(combined)}"
+                    )
+                raise RuntimeError(
+                    f"回测未生成结果文件: {_extract_backtest_error(combined)}"
+                )
+
+            if proc.returncode != 0 and proc.returncode not in _BENIGN_EXIT_CODES:
+                raise RuntimeError(
+                    f"回测失败 (exit {proc.returncode}): {_extract_backtest_error(combined)}"
+                )
+
             job.status = JobStatus.DONE
             job.result_id = result_id
             job.finished_at = datetime.now(timezone.utc).isoformat()
@@ -252,6 +310,52 @@ class FreqtradeService:
         tmp.write_text(json.dumps(raw, indent=2), encoding="utf-8")
         return tmp
 
+    @staticmethod
+    def _is_pid_running(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+
+    def _read_pid_file(self) -> Optional[int]:
+        if not PID_FILE.exists():
+            return None
+        try:
+            return int(PID_FILE.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            return None
+
+    @staticmethod
+    def _strategy_from_pid(pid: int) -> Optional[str]:
+        try:
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", errors="replace")
+            parts = [p for p in cmdline.split("\0") if p]
+            for i, part in enumerate(parts):
+                if part == "--strategy" and i + 1 < len(parts):
+                    return parts[i + 1]
+        except OSError:
+            pass
+        return None
+
+    def _recover_bot_state_from_disk(self) -> None:
+        """uvicorn 重启后内存中的 _bot_proc 会丢失，从 PID 文件恢复运行状态。"""
+        if self._bot_proc and self._bot_proc.poll() is None:
+            return
+
+        pid = self._read_pid_file()
+        if pid is None or not self._is_pid_running(pid):
+            if self._bot_state.running:
+                self._bot_state.running = False
+                self._bot_state.pid = None
+            return
+
+        strategy = self._strategy_from_pid(pid) or self._bot_state.strategy
+        self._bot_state.running = True
+        self._bot_state.pid = pid
+        self._bot_state.dry_run = True
+        self._bot_state.strategy = strategy
+
     def get_bot_state(self) -> BotState:
         with self._lock:
             if self._bot_proc and self._bot_proc.poll() is not None:
@@ -261,6 +365,8 @@ class FreqtradeService:
             elif self._bot_proc:
                 self._bot_state.running = True
                 self._bot_state.pid = self._bot_proc.pid
+            else:
+                self._recover_bot_state_from_disk()
             return BotState(
                 running=self._bot_state.running,
                 pid=self._bot_state.pid,
@@ -272,20 +378,27 @@ class FreqtradeService:
 
     def start_bot(self, strategy: str = "EmaCrossoverStrategy") -> BotState:
         """启动 Freqtrade dry-run 进程。"""
+        from quant_guard.services.control_service import control_service
+
+        if control_service.is_kill_switch_active():
+            raise RuntimeError("Kill Switch 已激活，拒绝启动 Bot")
+
+        if not DRYRUN_CONFIG.exists():
+            raise FileNotFoundError(f"dry-run 配置不存在: {DRYRUN_CONFIG}")
+
+        # 预检查可能耗时数秒，勿持有全局锁，否则会阻塞 /api/control/status
+        self._run_precheck(DRYRUN_CONFIG)
+        runtime_cfg = self._inject_okx_keys(DRYRUN_CONFIG)
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+        from quant_guard.services.strategy_manager import resolve_strategy_name
+
+        class_name = resolve_strategy_name(strategy)
+
         with self._lock:
             if self._bot_proc and self._bot_proc.poll() is None:
                 raise RuntimeError("Bot 已在运行中")
 
-            if not DRYRUN_CONFIG.exists():
-                raise FileNotFoundError(f"dry-run 配置不存在: {DRYRUN_CONFIG}")
-
-            self._run_precheck(DRYRUN_CONFIG)
-            runtime_cfg = self._inject_okx_keys(DRYRUN_CONFIG)
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-
-            from quant_guard.services.strategy_manager import resolve_strategy_name
-
-            class_name = resolve_strategy_name(strategy)
             log_f = open(TRADE_LOG, "a", encoding="utf-8")
             cmd = self._freqtrade_cmd(
                 "trade",
@@ -310,7 +423,14 @@ class FreqtradeService:
                 started_at=datetime.now(timezone.utc).isoformat(),
                 last_error=None,
             )
-            return self.get_bot_state()
+            return BotState(
+                running=True,
+                pid=self._bot_proc.pid,
+                strategy=class_name,
+                dry_run=True,
+                started_at=self._bot_state.started_at,
+                last_error=None,
+            )
 
     def stop_bot(self) -> BotState:
         """停止 Freqtrade dry-run 进程。"""
@@ -338,8 +458,16 @@ class FreqtradeService:
     def get_log_tail(self, lines: int = 30) -> list[str]:
         if not TRADE_LOG.exists():
             return []
-        content = TRADE_LOG.read_text(encoding="utf-8", errors="replace").splitlines()
-        return content[-lines:]
+        try:
+            with TRADE_LOG.open("rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                chunk = min(size, 64 * 1024)
+                f.seek(max(0, size - chunk))
+                text = f.read().decode("utf-8", errors="replace")
+            return text.splitlines()[-lines:]
+        except OSError:
+            return []
 
     def infer_timerange_from_data(self, exchange: str = "binance") -> str:
         """从本地 15m 数据推断可用 timerange（YYYYMMDD-YYYYMMDD）。"""
