@@ -7,6 +7,8 @@ import {
   AlertOutlined,
   CodeOutlined,
   ApiOutlined,
+  FundOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { apiClient } from '../api/client'
@@ -38,6 +40,8 @@ export default function MainLayout() {
     { key: '/backtest', icon: <LineChartOutlined />, label: '回测分析' },
     { key: '/strategy', icon: <CodeOutlined />, label: '策略管理' },
     { key: '/exchange', icon: <ApiOutlined />, label: '交易所连接' },
+    { key: '/review', icon: <FundOutlined />, label: '持仓复盘' },
+    { key: '/analysis', icon: <BarChartOutlined />, label: '持仓分析' },
     { key: '/control', icon: <ControlOutlined />, label: '控制台' },
     {
       key: '/alerts',

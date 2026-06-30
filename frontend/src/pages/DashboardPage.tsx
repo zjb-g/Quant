@@ -27,30 +27,24 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        const [s, p, e, r] = await Promise.all([
-          apiClient.getSystemStatus(),
-          apiClient.getPositions(),
-          apiClient.getEquityCurve(30),
-          apiClient.getRiskState(),
-        ])
-        setStatus(s)
-        setPositions(p)
-        setEquity(e)
-        setRisk(r)
-      } catch {
+      const [s, p, e, r] = await Promise.allSettled([
+        apiClient.getSystemStatus(),
+        apiClient.getPositions(),
+        apiClient.getEquityCurve(30),
+        apiClient.getRiskState(),
+      ])
+      if (s.status === 'fulfilled') setStatus(s.value)
+      if (p.status === 'fulfilled') setPositions(p.value)
+      if (e.status === 'fulfilled') setEquity(e.value)
+      if (r.status === 'fulfilled') setRisk(r.value)
+      if (s.status === 'rejected') {
         message.warning('后端未连接，显示占位数据')
-        // 占位 mock 数据
         setStatus({ bot_running: true, dry_run: true, strategy: 'EmaCrossoverStrategy', exchange: 'gate', uptime_seconds: 3600, current_time: new Date().toISOString() })
-        setPositions([])
-        setEquity([])
-        setRisk(null)
-      } finally {
-        setLoading(false)
       }
+      setLoading(false)
     }
     load()
-    const timer = setInterval(load, 10000)
+    const timer = setInterval(load, 30000)
     return () => clearInterval(timer)
   }, [])
 

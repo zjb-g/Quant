@@ -59,8 +59,13 @@ export default function StrategyPage() {
       setEditModalOpen(true)
       setAiDescription('')
       setAiFilename('')
-    } catch (err: any) {
-      message.error(err.response?.data?.detail || 'AI 生成失败')
+    } catch (err: unknown) {
+      const detail = (err as { response?: { data?: { detail?: string } }; code?: string; message?: string })
+      const msg = detail.response?.data?.detail
+        || (detail.code === 'ECONNABORTED' ? '请求超时，AI 仍在生成中，请稍后重试或简化描述' : '')
+        || detail.message
+        || 'AI 生成失败'
+      message.error(msg)
     } finally {
       setAiLoading(false)
     }
@@ -126,7 +131,13 @@ export default function StrategyPage() {
             <Button
               type="primary"
               icon={<RobotOutlined />}
-              onClick={() => setAiModalOpen(true)}
+              onClick={async () => {
+                try {
+                  const ai = await apiClient.aiStatus()
+                  setAiConfigured(ai.configured)
+                } catch { /* ignore */ }
+                setAiModalOpen(true)
+              }}
               disabled={!aiConfigured}
             >
               AI 生成策略
@@ -213,6 +224,7 @@ export default function StrategyPage() {
       >
         <Alert
           message="用自然语言描述你的交易策略，AI 会自动生成 Freqtrade 兼容的 Python 代码"
+          description="生成通常需要 10–120 秒，请耐心等待，不要关闭窗口。"
           type="info"
           style={{ marginBottom: 16 }}
         />

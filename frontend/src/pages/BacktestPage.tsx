@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Card, Select, Table, Tag, Statistic, Row, Col, Spin, message } from 'antd'
+import { useState, useEffect, useRef } from 'react'
+import {
+  Card, Select, Table, Tag, Statistic, Row, Col, Spin, message, Button, Input, Space, Alert, Progress,
+} from 'antd'
+import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
   LineChart,
   Line,
@@ -8,11 +11,14 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
 } from 'recharts'
-import { apiClient, type BacktestSummary, type BacktestTrade } from '../api/client'
+import {
+  apiClient,
+  type BacktestSummary,
+  type BacktestTrade,
+  type BacktestJob,
+  type StrategyInfo,
+} from '../api/client'
 
 export default function BacktestPage() {
   const [backtestIds, setBacktestIds] = useState<{id: string; strategy: string; timestamp: string}[]>([])
@@ -20,12 +26,28 @@ export default function BacktestPage() {
   const [summary, setSummary] = useState<BacktestSummary | null>(null)
   const [trades, setTrades] = useState<BacktestTrade[]>([])
   const [loading, setLoading] = useState(false)
+  const [strategies, setStrategies] = useState<StrategyInfo[]>([])
+  const [runStrategy, setRunStrategy] = useState('EmaCrossoverStrategy')
+  const [timerange, setTimerange] = useState('')
+  const [runningJob, setRunningJob] = useState<BacktestJob | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const refreshList = () => {
+    apiClient.getBacktestList().then(setBacktestIds).catch(() => message.error('无法加载回测列表'))
+  }
 
   useEffect(() => {
-    apiClient.getBacktestList().then(setBacktestIds).catch(() => {
-      message.warning('后端未连接，显示占位')
-      setBacktestIds([{id: 'mock-2026-06-26', strategy: 'EmaCrossoverStrategy', timestamp: '2026-06-26'}])
-    })
+    refreshList()
+    apiClient.getStrategies().then((list) => {
+      setStrategies(list)
+      if (list.length) setRunStrategy(list[0].name)
+    }).catch(() => {})
+    apiClient.getBacktestDefaultTimerange()
+      .then((r) => setTimerange(r.timerange))
+      .catch(() => setTimerange('20250601-20260601'))
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -37,25 +59,50 @@ export default function BacktestPage() {
         setSummary(r.summary)
         setTrades(r.trades)
       })
-      .catch(() => {
-        // mock 占位
-        setSummary({
-          strategy: 'EmaCrossoverStrategy',
-          timerange: '2025-06-01 ~ 2026-06-25',
-          total_trades: 1722,
-          total_profit_pct: -26.49,
-          max_drawdown_pct: 26.91,
-          win_rate: 58.4,
-          avg_duration: '1:31:00',
-          sharpe: -9.65,
-          sortino: -16.28,
-        })
-        setTrades([])
-      })
+      .catch(() => message.error('加载回测结果失败'))
       .finally(() => setLoading(false))
   }, [selectedId])
 
-  // 权益曲线（从 trades 累计）
+  const pollJob = (jobId: string) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const job = await apiClient.getBacktestJob(jobId)
+        setRunningJob(job)
+        if (job.status === 'done') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          message.success('回测完成')
+          refreshList()
+          if (job.result_id) setSelectedId(job.result_id)
+          setRunningJob(null)
+        } else if (job.status === 'error') {
+          if (pollRef.current) clearInterval(pollRef.current)
+          message.error(job.error || '回测失败')
+          setRunningJob(null)
+        }
+      } catch {
+        if (pollRef.current) clearInterval(pollRef.current)
+        setRunningJob(null)
+      }
+    }, 2000)
+  }
+
+  const handleRunBacktest = async () => {
+    if (!timerange.match(/^\d{8}-\d{8}$/)) {
+      message.warning('时间范围格式应为 YYYYMMDD-YYYYMMDD')
+      return
+    }
+    try {
+      const job = await apiClient.runBacktest(runStrategy, timerange, true)
+      setRunningJob(job)
+      message.info('回测已启动，请稍候…')
+      pollJob(job.id)
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      message.error(msg || '启动回测失败')
+    }
+  }
+
   const equityData = trades.length > 0
     ? trades.reduce<{ timestamp: string; cumProfit: number }[]>((acc, t) => {
         const prev = acc.length > 0 ? acc[acc.length - 1].cumProfit : 0
@@ -66,6 +113,51 @@ export default function BacktestPage() {
 
   return (
     <div>
+      <Card title="运行回测（历史 K 线）" style={{ marginBottom: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="使用本地 Binance 永续 K 线数据，通过 Freqtrade 引擎回测。首次运行约需 30–120 秒。"
+        />
+        <Space wrap>
+          <Select
+            style={{ width: 240 }}
+            value={runStrategy}
+            onChange={setRunStrategy}
+            options={strategies.map((s) => ({
+              value: s.name,
+              label: s.id && s.id !== s.name ? `${s.name} (${s.id})` : s.name,
+              disabled: s.has_errors,
+            }))}
+          />
+          <Input
+            style={{ width: 220 }}
+            value={timerange}
+            onChange={(e) => setTimerange(e.target.value)}
+            placeholder="20250601-20260601"
+            addonBefore="时间范围"
+          />
+          <Button
+            type="primary"
+            icon={<PlayCircleOutlined />}
+            onClick={handleRunBacktest}
+            disabled={!!runningJob}
+          >
+            运行回测
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={refreshList}>刷新列表</Button>
+        </Space>
+        {runningJob && (
+          <div style={{ marginTop: 16 }}>
+            <Progress percent={runningJob.status === 'running' ? 50 : 10} status="active" />
+            <span style={{ marginLeft: 8, color: '#999' }}>
+              {runningJob.strategy} · {runningJob.timerange} · {runningJob.status}
+            </span>
+          </div>
+        )}
+      </Card>
+
       <Card title="回测结果选择" style={{ marginBottom: 16 }}>
         <Select
           style={{ width: 400 }}
@@ -106,26 +198,28 @@ export default function BacktestPage() {
             </Col>
             <Col span={4}><Card><Statistic title="胜率" value={summary.win_rate} precision={1} suffix="%" /></Card></Col>
             <Col span={4}><Card><Statistic title="Sharpe" value={summary.sharpe} precision={2} /></Card></Col>
-            <Col span={4}><Card><Statistic title="Sortino" value={summary.sortino} precision={2} /></Card></Col>
+            <Col span={4}><Card><Statistic title="时间范围" value={summary.timerange} valueStyle={{ fontSize: 14 }} /></Card></Col>
           </Row>
 
-          <Card title="累计收益曲线" style={{ marginBottom: 16 }}>
-            <ResponsiveContainer width="100%" height={320}>
-              <LineChart data={equityData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                <XAxis dataKey="timestamp" fontSize={11} />
-                <YAxis fontSize={11} />
-                <Tooltip />
-                <Line type="monotone" dataKey="cumProfit" stroke="#1890ff" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </Card>
+          {equityData.length > 0 && (
+            <Card title="累计收益曲线" style={{ marginBottom: 16 }}>
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={equityData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <XAxis dataKey="timestamp" fontSize={11} />
+                  <YAxis fontSize={11} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="cumProfit" stroke="#1890ff" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+          )}
 
           {trades.length > 0 && (
             <Card title={`交易明细（${trades.length} 笔）`}>
               <Table
                 dataSource={trades.slice(0, 200)}
-                rowKey={(r) => `${r.pair}-${r.open_date}`}
+                rowKey={(r) => `${r.pair}-${r.open_date}-${r.close_date}`}
                 size="small"
                 pagination={{ pageSize: 50 }}
                 scroll={{ x: 800 }}
@@ -147,10 +241,9 @@ export default function BacktestPage() {
                     title: '收益率',
                     dataIndex: 'profit_pct',
                     key: 'profit_pct',
-                    sorter: (a: BacktestTrade, b: BacktestTrade) => a.profit_pct - b.profit_pct,
                     render: (v: number) => (
                       <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
-                        {v >= 0 ? '+' : ''}{v.toFixed(2)}%
+                        {v >= 0 ? '+' : ''}{v?.toFixed(2)}%
                       </span>
                     ),
                   },

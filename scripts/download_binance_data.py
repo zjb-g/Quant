@@ -27,17 +27,40 @@ from datetime import datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-# Binance 符号 → Freqtrade pair 映射
+# Binance 符号 → Freqtrade pair 映射（未列出的自动推导：BTCUSDT → BTC/USDT:USDT）
 SYMBOL_TO_PAIR = {
     "BTCUSDT": "BTC/USDT:USDT",
     "ETHUSDT": "ETH/USDT:USDT",
     "SOLUSDT": "SOL/USDT:USDT",
     "BNBUSDT": "BNB/USDT:USDT",
     "XRPUSDT": "XRP/USDT:USDT",
+    "SUIUSDT": "SUI/USDT:USDT",
+    "ZECUSDT": "ZEC/USDT:USDT",
+    "DOGEUSDT": "DOGE/USDT:USDT",
+    "ORDIUSDT": "ORDI/USDT:USDT",
+    "FLOWUSDT": "FLOW/USDT:USDT",
+    "ZENUSDT": "ZEN/USDT:USDT",
+    "WLDUSDT": "WLD/USDT:USDT",
+    "ONTUSDT": "ONT/USDT:USDT",
+    "MAGICUSDT": "MAGIC/USDT:USDT",
+    "FILUSDT": "FIL/USDT:USDT",
+    "UNIUSDT": "UNI/USDT:USDT",
+    "TRXUSDT": "TRX/USDT:USDT",
+    "LPTUSDT": "LPT/USDT:USDT",
 }
 
 BASE = "https://data.binance.vision"
 OUT_DIR = "user_data/data/binance"
+
+
+def symbol_to_pair(symbol: str) -> str:
+    """Binance 符号转 Freqtrade pair。"""
+    if symbol in SYMBOL_TO_PAIR:
+        return SYMBOL_TO_PAIR[symbol]
+    if symbol.endswith("USDT"):
+        base = symbol[:-4]
+        return f"{base}/USDT:USDT"
+    return symbol
 
 
 def date_range(start_str: str, end_str: str):
@@ -145,8 +168,8 @@ def to_freqtrade_feather(
         print("  [warn] pandas 未安装，跳过 feather 转换", file=sys.stderr)
         return None
 
-    pair = SYMBOL_TO_PAIR.get(symbol)
-    if pair is None:
+    pair = symbol_to_pair(symbol)
+    if pair == symbol and symbol not in SYMBOL_TO_PAIR:
         print(f"  [warn] 未知符号 {symbol}，跳过 feather", file=sys.stderr)
         return None
 

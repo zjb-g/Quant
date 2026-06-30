@@ -6,9 +6,22 @@ API Key 从环境变量读取，不硬编码。
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional
 
 import ccxt
+
+
+def _load_dotenv() -> None:
+    """加载 .env（若存在）。"""
+    env_path = Path(".env")
+    if env_path.exists():
+        try:
+            from dotenv import load_dotenv
+
+            load_dotenv(env_path)
+        except ImportError:
+            pass
 
 
 @dataclass
@@ -45,6 +58,28 @@ class HistoricalTrade:
     pnl: float
 
 
+@dataclass
+class HistoricalPosition:
+    """历史持仓（已平仓）。"""
+
+    position_id: str
+    symbol: str
+    side: str
+    leverage: float
+    margin_mode: str
+    open_avg_price: float
+    close_avg_price: float
+    close_size: float
+    pnl: float
+    realized_pnl: float
+    pnl_ratio: float
+    fee: float
+    funding_fee: float
+    close_type: str
+    open_time: str
+    close_time: str
+
+
 class ExchangeService:
     """交易所数据服务。
 
@@ -61,7 +96,7 @@ class ExchangeService:
         if self._exchange is not None:
             return self._exchange
 
-        # 优先 OKX，其次 gate
+        _load_dotenv()
         for name in ["okx", "gate"]:
             api_key = os.environ.get(f"{name.upper()}_API_KEY", "")
             api_secret = os.environ.get(f"{name.upper()}_API_SECRET", "")
@@ -160,6 +195,48 @@ class ExchangeService:
                 "percentage": float(p.get("percentage", 0) or 0),
             })
         return positions
+
+    def get_positions_history(
+        self, limit: int = 100, fetch_all: bool = False
+    ) -> List[HistoricalPosition]:
+        """获取历史持仓（已平仓记录）。当前仅支持 OKX。"""
+        self._get_exchange()
+        if self._exchange_name != "okx":
+            raise RuntimeError("历史持仓查询仅支持 OKX 交易所")
+
+        from datetime import datetime, timezone
+
+        from quant_guard.exchange.okx_client import OKXClient
+
+        client = OKXClient(public_only=False)
+        raw = client.get_positions_history(limit=limit, fetch_all=fetch_all)
+
+        def _fmt_ts(ms: int) -> str:
+            if not ms:
+                return ""
+            return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat()
+
+        return [
+            HistoricalPosition(
+                position_id=h.position_id,
+                symbol=h.symbol,
+                side=h.side.value,
+                leverage=h.leverage,
+                margin_mode=h.margin_mode,
+                open_avg_price=h.open_avg_price,
+                close_avg_price=h.close_avg_price,
+                close_size=h.close_size,
+                pnl=h.pnl,
+                realized_pnl=h.realized_pnl,
+                pnl_ratio=h.pnl_ratio,
+                fee=h.fee,
+                funding_fee=h.funding_fee,
+                close_type=h.close_type.value,
+                open_time=_fmt_ts(h.open_time),
+                close_time=_fmt_ts(h.close_time),
+            )
+            for h in raw
+        ]
 
     def get_historical_trades(self, limit: int = 100) -> List[HistoricalTrade]:
         """获取历史交易记录。"""

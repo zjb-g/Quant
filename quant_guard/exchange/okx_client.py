@@ -16,13 +16,24 @@ from typing import List, Optional
 import ccxt
 
 from quant_guard.exchange.models import (
+    CloseType,
     FundingRate,
     MarkPrice,
     Ohlcv,
     Position,
+    PositionHistory,
     Side,
     Ticker,
 )
+
+# OKX positions-history type → CloseType
+_OKX_CLOSE_TYPE_MAP = {
+    "1": CloseType.PARTIAL,
+    "2": CloseType.FULL,
+    "3": CloseType.LIQUIDATION,
+    "4": CloseType.FORCED_REDUCTION,
+    "5": CloseType.ADL,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +112,44 @@ class OKXClient:
                 raise OKXClientError(f"exchange error: {exc}") from exc
         raise OKXClientError(f"max retries ({self.max_retries}) exceeded: {last_exc}")
 
+    @staticmethod
+    def _parse_close_type(raw_type) -> CloseType:
+        return _OKX_CLOSE_TYPE_MAP.get(str(raw_type or ""), CloseType.UNKNOWN)
+
+    @staticmethod
+    def _parse_position_history_item(item: dict) -> PositionHistory:
+        """将 ccxt fetch_positions_history 或 OKX 原始记录解析为 PositionHistory。"""
+        info = item.get("info") or item
+        side_str = (
+            item.get("side")
+            or info.get("direction")
+            or info.get("posSide")
+            or "long"
+        )
+        symbol = item.get("symbol") or info.get("instId", "")
+        if symbol and "/" not in symbol and info.get("instId"):
+            # OKX instId → ccxt symbol 格式由上层展示，保留 instId 亦可
+            symbol = info.get("instId", symbol)
+
+        return PositionHistory(
+            position_id=str(item.get("id") or info.get("posId") or ""),
+            symbol=symbol,
+            side=Side(side_str),
+            leverage=float(item.get("leverage") or info.get("lever") or 1),
+            margin_mode=str(item.get("marginMode") or info.get("mgnMode") or ""),
+            open_avg_price=float(item.get("entryPrice") or info.get("openAvgPx") or 0),
+            close_avg_price=float(item.get("lastPrice") or info.get("closeAvgPx") or 0),
+            close_size=float(info.get("closeTotalPos") or 0),
+            pnl=float(info.get("pnl") or item.get("realizedPnl") or 0),
+            realized_pnl=float(item.get("realizedPnl") or info.get("realizedPnl") or 0),
+            pnl_ratio=float(info.get("pnlRatio") or 0),
+            fee=float(info.get("fee") or 0),
+            funding_fee=float(info.get("fundingFee") or 0),
+            close_type=OKXClient._parse_close_type(info.get("type")),
+            open_time=int(item.get("timestamp") or info.get("cTime") or 0),
+            close_time=int(item.get("lastUpdateTimestamp") or info.get("uTime") or 0),
+        )
+
     # ------------------------------------------------------------------ #
     # 公开行情接口
     # ------------------------------------------------------------------ #
@@ -173,11 +222,14 @@ class OKXClient:
             side_str = p.get("side") or p.get("info", {}).get("posSide")
             if not side_str:
                 continue
+            contracts = float(p.get("contracts", 0) or 0)
+            if contracts == 0:
+                continue
             positions.append(
                 Position(
                     symbol=p["symbol"],
                     side=Side(side_str),
-                    contracts=float(p.get("contracts", 0) or 0),
+                    contracts=contracts,
                     entry_price=float(p.get("entryPrice", 0) or 0),
                     mark_price=float(p.get("markPrice", 0) or 0),
                     leverage=float(p.get("leverage", 1) or 1),
@@ -191,3 +243,93 @@ class OKXClient:
                 )
             )
         return positions
+
+    def get_positions_history(
+        self,
+        symbols: Optional[List[str]] = None,
+        limit: int = 100,
+        inst_type: str = "SWAP",
+        fetch_all: bool = False,
+    ) -> List[PositionHistory]:
+        """获取历史持仓（已平仓记录）。public-only 模式下禁止调用。
+
+        参数：
+            symbols: 可选，ccxt 格式交易对列表，如 ['BTC/USDT:USDT']
+            limit: 返回条数上限；fetch_all=True 或 limit=0 时拉取全部（分页）
+            inst_type: 产品类型，默认 SWAP（永续）
+            fetch_all: True 时自动分页拉取全部历史
+        """
+        if self.public_only:
+            raise OKXClientError(
+                "get_positions_history requires private mode (public_only=False)"
+            )
+
+        if fetch_all or limit == 0:
+            return self._fetch_positions_history_paginated(
+                symbols=symbols, limit=0, inst_type=inst_type
+            )
+
+        page_limit = min(max(limit, 1), 100)
+
+        # 超过 100 条时走分页
+        if limit > 100:
+            return self._fetch_positions_history_paginated(
+                symbols=symbols, limit=limit, inst_type=inst_type
+            )
+
+        if hasattr(self._exchange, "fetch_positions_history"):
+            kwargs: dict = {"limit": page_limit}
+            if symbols:
+                kwargs["symbols"] = symbols
+            raw = self._call(self._exchange.fetch_positions_history, **kwargs)
+            return [self._parse_position_history_item(item) for item in raw]
+
+        params: dict = {"instType": inst_type, "limit": str(page_limit)}
+        if symbols and len(symbols) == 1:
+            sym = symbols[0].replace("/", "-").replace(":USDT", "-SWAP")
+            params["instId"] = sym
+
+        raw = self._call(self._exchange.private_get_account_positions_history, params)
+        return [self._parse_position_history_item(item) for item in raw.get("data", [])]
+
+    def _fetch_positions_history_paginated(
+        self,
+        symbols: Optional[List[str]] = None,
+        limit: int = 0,
+        inst_type: str = "SWAP",
+        max_pages: int = 50,
+    ) -> List[PositionHistory]:
+        """分页拉取历史持仓。OKX 单次最多 100 条，用 after=uTime 翻页。"""
+        results: List[PositionHistory] = []
+        after: Optional[str] = None
+        last_after: Optional[str] = None
+
+        for _ in range(max_pages):
+            params: dict = {"instType": inst_type, "limit": "100"}
+            if after:
+                params["after"] = after
+            if symbols and len(symbols) == 1:
+                sym = symbols[0].replace("/", "-").replace(":USDT", "-SWAP")
+                params["instId"] = sym
+
+            raw = self._call(
+                self._exchange.private_get_account_positions_history, params
+            )
+            data = raw.get("data", [])
+            if not data:
+                break
+
+            for item in data:
+                results.append(self._parse_position_history_item(item))
+                if limit > 0 and len(results) >= limit:
+                    return results
+
+            if len(data) < 100:
+                break
+
+            after = str(data[-1].get("uTime", ""))
+            if not after or after == last_after:
+                break
+            last_after = after
+
+        return results

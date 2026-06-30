@@ -15,6 +15,17 @@ class Side(str, Enum):
     SHORT = "short"
 
 
+class CloseType(str, Enum):
+    """历史持仓平仓类型（OKX positions-history type 字段）。"""
+
+    PARTIAL = "partial"
+    FULL = "full"
+    LIQUIDATION = "liquidation"
+    FORCED_REDUCTION = "forced_reduction"
+    ADL = "adl"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True)
 class Ticker:
     """最新行情快照。"""
@@ -72,3 +83,25 @@ class Position:
     unrealized_pnl: float
     liquidation_price: Optional[float] = None
     timestamp: int = 0
+
+
+@dataclass(frozen=True)
+class PositionHistory:
+    """已平仓历史持仓（OKX positions-history）。"""
+
+    position_id: str
+    symbol: str
+    side: Side
+    leverage: float
+    margin_mode: str
+    open_avg_price: float
+    close_avg_price: float
+    close_size: float
+    pnl: float
+    realized_pnl: float
+    pnl_ratio: float
+    fee: float
+    funding_fee: float
+    close_type: CloseType
+    open_time: int
+    close_time: int

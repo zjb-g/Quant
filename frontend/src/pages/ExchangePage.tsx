@@ -7,7 +7,16 @@ import {
   ApiOutlined, LinkOutlined, CheckCircleOutlined, CloseCircleOutlined,
   ReloadOutlined, WalletOutlined
 } from '@ant-design/icons'
-import { apiClient, type Position, type HistoricalTrade } from '../api/client'
+import { apiClient, type Position, type PositionHistory, type HistoricalTrade } from '../api/client'
+
+const CLOSE_TYPE_LABELS: Record<string, string> = {
+  partial: '部分平仓',
+  full: '完全平仓',
+  liquidation: '强平',
+  forced_reduction: '强减',
+  adl: 'ADL',
+  unknown: '未知',
+}
 
 export default function ExchangePage() {
   const [connected, setConnected] = useState(false)
@@ -16,6 +25,7 @@ export default function ExchangePage() {
   const [envStatus, setEnvStatus] = useState<Record<string, boolean>>({})
   const [balance, setBalance] = useState<{total: number; free: number; used: number; currency: string} | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
+  const [positionHistory, setPositionHistory] = useState<PositionHistory[]>([])
   const [trades, setTrades] = useState<HistoricalTrade[]>([])
   const [loading, setLoading] = useState(false)
   const [form] = Form.useForm()
@@ -68,13 +78,15 @@ export default function ExchangePage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [bal, pos, tr] = await Promise.all([
+      const [bal, pos, hist, tr] = await Promise.all([
         apiClient.getExchangeBalance().catch(() => null),
         apiClient.getExchangePositions().catch(() => []),
+        apiClient.getExchangePositionsHistory(50, true).catch(() => []),
         apiClient.getExchangeTrades(50).catch(() => []),
       ])
       setBalance(bal)
       setPositions(pos)
+      setPositionHistory(hist)
       setTrades(tr)
     } finally {
       setLoading(false)
@@ -176,7 +188,7 @@ export default function ExchangePage() {
                 <Card>
                   <Table
                     dataSource={positions}
-                    rowKey="symbol"
+                    rowKey={(r) => `${r.symbol}-${r.side}`}
                     size="small"
                     pagination={false}
                     columns={[
@@ -185,19 +197,63 @@ export default function ExchangePage() {
                         title: '方向', dataIndex: 'side', key: 'side',
                         render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s}</Tag>,
                       },
-                      { title: '数量', dataIndex: 'contracts', key: 'contracts', precision: 4 },
-                      { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', precision: 2 },
-                      { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', precision: 2 },
-                      { title: '杠杆', dataIndex: 'leverage', key: 'leverage', suffix: 'x' },
+                      { title: '数量', dataIndex: 'contracts', key: 'contracts', render: (v: number) => v?.toFixed(4) },
+                      { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', render: (v: number) => v?.toFixed(2) },
+                      { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', render: (v: number) => v?.toFixed(2) },
+                      { title: '杠杆', dataIndex: 'leverage', key: 'leverage', render: (v: number) => `${v}x` },
                       {
                         title: '未实现盈亏', dataIndex: 'unrealized_pnl', key: 'pnl',
                         render: (v: number) => (
                           <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
-                            {v >= 0 ? '+' : ''}{v.toFixed(2)}
+                            {v >= 0 ? '+' : ''}{v?.toFixed(2)}
                           </span>
                         ),
                       },
                       { title: '强平价', dataIndex: 'liquidation_price', key: 'liq' },
+                    ]}
+                  />
+                </Card>
+              ),
+            },
+            {
+              key: 'position-history',
+              label: `历史持仓 (${positionHistory.length})`,
+              children: (
+                <Card>
+                  <Table
+                    dataSource={positionHistory}
+                    rowKey={(r) => `${r.position_id}::${r.close_time}`}
+                    size="small"
+                    pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
+                    columns={[
+                      { title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 180,
+                        render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-' },
+                      { title: '币种', dataIndex: 'symbol', key: 'symbol' },
+                      {
+                        title: '方向', dataIndex: 'side', key: 'side',
+                        render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s}</Tag>,
+                      },
+                      { title: '杠杆', dataIndex: 'leverage', key: 'leverage', render: (v: number) => `${v}x` },
+                      { title: '开仓价', dataIndex: 'open_avg_price', key: 'open', render: (v: number) => v?.toFixed(2) },
+                      { title: '平仓价', dataIndex: 'close_avg_price', key: 'close', render: (v: number) => v?.toFixed(2) },
+                      { title: '数量', dataIndex: 'close_size', key: 'size', render: (v: number) => v?.toFixed(4) },
+                      {
+                        title: '盈亏', dataIndex: 'pnl', key: 'pnl',
+                        render: (v: number) => (
+                          <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
+                            {v >= 0 ? '+' : ''}{v?.toFixed(4)}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: '类型', dataIndex: 'close_type', key: 'type',
+                        render: (t: string) => (
+                          <Tag color={t === 'liquidation' ? 'red' : t === 'full' ? 'blue' : 'default'}>
+                            {CLOSE_TYPE_LABELS[t] || t}
+                          </Tag>
+                        ),
+                      },
+                      { title: '手续费', dataIndex: 'fee', key: 'fee', render: (v: number) => v?.toFixed(4) },
                     ]}
                   />
                 </Card>

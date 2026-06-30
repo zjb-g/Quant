@@ -59,6 +59,7 @@
         "chat_id": ""
     },
     "bot_name": "crypto_quant_dryrun",
+    "dataformat_ohlcv": "feather",
     "initial_state": "running",
     "force_entry_enable": false,
     "internals": {

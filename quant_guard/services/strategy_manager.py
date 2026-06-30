@@ -137,3 +137,34 @@ def get_strategy_code(filename: str) -> Optional[str]:
     if not path.exists():
         return None
     return path.read_text(encoding="utf-8")
+
+
+def resolve_strategy_name(name: str) -> str:
+    """将用户输入的策略名解析为 Freqtrade 所需的类名。
+
+    支持：
+    - 类名：ConsecutiveBodyExpansionStrategy
+    - 文件名：move.py
+    - 文件主名（用户自取的名字）：move
+    """
+    raw = name.strip()
+    if not raw:
+        raise ValueError("策略名不能为空")
+
+    strategies = list_strategies()
+    by_class = {s.name: s.name for s in strategies if s.name}
+    by_filename = {s.filename.lower(): s.name for s in strategies}
+    by_stem = {Path(s.filename).stem.lower(): s.name for s in strategies}
+
+    key = raw.lower()
+    if raw in by_class:
+        return raw
+    if key in by_stem and by_stem[key]:
+        return by_stem[key]
+    if key.endswith(".py") and key in by_filename and by_filename[key]:
+        return by_filename[key]
+    if f"{key}.py" in by_filename and by_filename[f"{key}.py"]:
+        return by_filename[f"{key}.py"]
+
+    # 未匹配时原样返回，由 Freqtrade 报错
+    return raw

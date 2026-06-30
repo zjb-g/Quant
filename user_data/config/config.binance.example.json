@@ -50,6 +50,7 @@
         "chat_id": ""
     },
     "bot_name": "crypto_quant_backtest",
+    "dataformat_ohlcv": "feather",
     "initial_state": "running",
     "internals": {
         "process_throttle_secs": 5

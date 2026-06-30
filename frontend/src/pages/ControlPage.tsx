@@ -1,23 +1,28 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Space, Input, Form, InputNumber, message, Modal, Tag, Statistic, Row, Col, Divider } from 'antd'
+import { Card, Button, Space, Input, Form, InputNumber, message, Modal, Tag, Statistic, Row, Col, Divider, Select, Alert } from 'antd'
 import { PlayCircleOutlined, PauseCircleOutlined, StopOutlined, ThunderboltOutlined, SaveOutlined } from '@ant-design/icons'
-import { apiClient, type RiskConfig, type RiskState } from '../api/client'
+import { apiClient, type RiskConfig, type RiskState, type BotStatus, type StrategyInfo } from '../api/client'
 
 export default function ControlPage() {
   const [riskState, setRiskState] = useState<RiskState | null>(null)
   const [config, setConfig] = useState<RiskConfig | null>(null)
+  const [botStatus, setBotStatus] = useState<BotStatus | null>(null)
+  const [strategies, setStrategies] = useState<StrategyInfo[]>([])
+  const [runStrategy, setRunStrategy] = useState('EmaCrossoverStrategy')
   const [form] = Form.useForm<RiskConfig>()
   const [killReason, setKillReason] = useState('')
   const [loading, setLoading] = useState(false)
 
   const load = async () => {
     try {
-      const [r, c] = await Promise.all([
+      const [r, c, b] = await Promise.all([
         apiClient.getRiskState(),
         apiClient.getRiskConfig(),
+        apiClient.getBotStatus(),
       ])
       setRiskState(r)
       setConfig(c)
+      setBotStatus(b)
       form.setFieldsValue(c)
     } catch {
       message.warning('后端未连接')
@@ -26,6 +31,10 @@ export default function ControlPage() {
 
   useEffect(() => {
     load()
+    apiClient.getStrategies().then((list) => {
+      setStrategies(list)
+      if (list.length) setRunStrategy(list[0].name)
+    }).catch(() => {})
     const timer = setInterval(load, 10000)
     return () => clearInterval(timer)
   }, [])
@@ -33,11 +42,12 @@ export default function ControlPage() {
   const handleStart = async () => {
     setLoading(true)
     try {
-      await apiClient.startBot()
-      message.success('Bot 已启动')
+      await apiClient.startBot(runStrategy)
+      message.success(`Freqtrade dry-run 已启动（${runStrategy}）`)
       load()
-    } catch {
-      message.error('启动失败')
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      message.error(msg || '启动失败')
     } finally {
       setLoading(false)
     }
@@ -123,43 +133,72 @@ export default function ControlPage() {
     <div>
       <Row gutter={[16, 16]}>
         <Col span={12}>
-          <Card title="Bot 控制">
-            <Space size="large">
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                onClick={handleStart}
-                loading={loading}
-                size="large"
-              >
-                启动
-              </Button>
-              <Button
-                danger
-                icon={<PauseCircleOutlined />}
-                onClick={handleStop}
-                loading={loading}
-                size="large"
-              >
-                停止
-              </Button>
+          <Card title="Bot 控制（Freqtrade dry-run）">
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="启动后会运行 Freqtrade 模拟盘（dry_run=true），使用 OKX 行情，不会真实下单。"
+            />
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Select
+                style={{ width: '100%' }}
+                value={runStrategy}
+                onChange={setRunStrategy}
+                disabled={botStatus?.running}
+                options={strategies.map((s) => ({
+                  value: s.name,
+                  label: s.id && s.id !== s.name ? `${s.name} (${s.id})` : s.name,
+                  disabled: s.has_errors,
+                }))}
+              />
+              <Space size="large">
+                <Button
+                  type="primary"
+                  icon={<PlayCircleOutlined />}
+                  onClick={handleStart}
+                  loading={loading}
+                  disabled={botStatus?.running}
+                  size="large"
+                >
+                  启动
+                </Button>
+                <Button
+                  danger
+                  icon={<PauseCircleOutlined />}
+                  onClick={handleStop}
+                  loading={loading}
+                  disabled={!botStatus?.running}
+                  size="large"
+                >
+                  停止
+                </Button>
+              </Space>
             </Space>
             <Divider />
             <Row gutter={16}>
               <Col span={8}>
                 <Statistic
-                  title="Bot 状态"
-                  value={riskState?.kill_switch ? 'KILL SWITCH' : '正常'}
-                  valueStyle={{ color: riskState?.kill_switch ? '#cf1322' : '#3f8600' }}
+                  title="运行状态"
+                  value={botStatus?.running ? '运行中' : '已停止'}
+                  valueStyle={{ color: botStatus?.running ? '#3f8600' : '#999' }}
                 />
               </Col>
               <Col span={8}>
-                <Statistic title="总敞口" value={riskState?.current_total_notional ?? 0} precision={2} suffix="USDT" />
+                <Statistic title="进程 PID" value={botStatus?.pid ?? '-'} />
               </Col>
               <Col span={8}>
-                <Statistic title="最大杠杆" value={riskState?.max_leverage ?? 0} suffix="x" />
+                <Statistic title="策略" value={botStatus?.strategy ?? '-'} valueStyle={{ fontSize: 14 }} />
               </Col>
             </Row>
+            {botStatus?.log_tail && botStatus.log_tail.length > 0 && (
+              <pre style={{
+                marginTop: 12, padding: 8, background: '#111', color: '#aaa',
+                fontSize: 11, maxHeight: 120, overflow: 'auto', borderRadius: 4,
+              }}>
+                {botStatus.log_tail.slice(-8).join('\n')}
+              </pre>
+            )}
           </Card>
         </Col>
         <Col span={12}>

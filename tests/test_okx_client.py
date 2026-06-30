@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import ccxt
 import pytest
 
-from quant_guard.exchange.models import Ohlcv, Side, Ticker
+from quant_guard.exchange.models import CloseType, Ohlcv, Side, Ticker
 from quant_guard.exchange.okx_client import OKXClient, OKXClientError
 
 
@@ -175,6 +175,151 @@ def test_get_positions_private(mock_okx):
     assert positions[0].side == Side.LONG
     assert positions[0].leverage == 5.0
     assert positions[0].liquidation_price == 42000.0
+
+
+@patch("quant_guard.exchange.okx_client.ccxt.okx")
+def test_get_positions_history_public_only_raises(mock_okx):
+    mock_okx.return_value = MagicMock()
+    client = OKXClient(public_only=True)
+    with pytest.raises(OKXClientError, match="private mode"):
+        client.get_positions_history()
+
+
+@patch("quant_guard.exchange.okx_client.ccxt.okx")
+def test_get_positions_history_via_ccxt(mock_okx):
+    mock_exchange = MagicMock()
+    mock_okx.return_value = mock_exchange
+    mock_exchange.fetch_positions_history.return_value = [
+        {
+            "id": "pos123",
+            "symbol": "BTC/USDT:USDT",
+            "side": "long",
+            "leverage": 5.0,
+            "marginMode": "isolated",
+            "entryPrice": 60000.0,
+            "lastPrice": 61000.0,
+            "realizedPnl": 8.5,
+            "timestamp": 1700000000000,
+            "lastUpdateTimestamp": 1700003600000,
+            "info": {
+                "posId": "pos123",
+                "closeTotalPos": "1.5",
+                "pnl": "10.0",
+                "pnlRatio": "0.05",
+                "fee": "-1.0",
+                "fundingFee": "-0.5",
+                "type": "2",
+                "mgnMode": "isolated",
+            },
+        }
+    ]
+    env = {"OKX_API_KEY": "k", "OKX_API_SECRET": "s", "OKX_API_PASSPHRASE": "p"}
+    with patch.dict("os.environ", env, clear=False):
+        client = OKXClient(public_only=False)
+    history = client.get_positions_history(limit=10)
+    assert len(history) == 1
+    assert history[0].symbol == "BTC/USDT:USDT"
+    assert history[0].side == Side.LONG
+    assert history[0].close_type == CloseType.FULL
+    assert history[0].pnl == 10.0
+    assert history[0].close_size == 1.5
+    mock_exchange.fetch_positions_history.assert_called_once_with(limit=10)
+
+
+@patch("quant_guard.exchange.okx_client.ccxt.okx")
+def test_get_positions_history_via_okx_api_fallback(mock_okx):
+    mock_exchange = MagicMock()
+    mock_okx.return_value = mock_exchange
+    del mock_exchange.fetch_positions_history  # 模拟旧版 ccxt 无此方法
+    mock_exchange.private_get_account_positions_history.return_value = {
+        "data": [
+            {
+                "posId": "pos456",
+                "instId": "ETH-USDT-SWAP",
+                "direction": "short",
+                "lever": "10",
+                "mgnMode": "cross",
+                "openAvgPx": "3000",
+                "closeAvgPx": "2950",
+                "closeTotalPos": "2",
+                "pnl": "5",
+                "realizedPnl": "4.5",
+                "pnlRatio": "0.02",
+                "fee": "-0.5",
+                "fundingFee": "0",
+                "type": "3",
+                "cTime": "1700000000000",
+                "uTime": "1700003600000",
+            }
+        ]
+    }
+    env = {"OKX_API_KEY": "k", "OKX_API_SECRET": "s", "OKX_API_PASSPHRASE": "p"}
+    with patch.dict("os.environ", env, clear=False):
+        client = OKXClient(public_only=False)
+    history = client.get_positions_history(limit=5)
+    assert len(history) == 1
+    assert history[0].symbol == "ETH-USDT-SWAP"
+    assert history[0].side == Side.SHORT
+    assert history[0].close_type == CloseType.LIQUIDATION
+
+
+@patch("quant_guard.exchange.okx_client.ccxt.okx")
+def test_get_positions_history_paginated(mock_okx):
+    mock_exchange = MagicMock()
+    mock_okx.return_value = mock_exchange
+    mock_exchange.private_get_account_positions_history.side_effect = [
+        {
+            "data": [
+                {
+                    "posId": f"pos{i}",
+                    "instId": "BTC-USDT-SWAP",
+                    "direction": "long",
+                    "lever": "5",
+                    "mgnMode": "isolated",
+                    "openAvgPx": "60000",
+                    "closeAvgPx": "61000",
+                    "closeTotalPos": "1",
+                    "pnl": "1",
+                    "realizedPnl": "0.9",
+                    "pnlRatio": "0.01",
+                    "fee": "0",
+                    "fundingFee": "0",
+                    "type": "2",
+                    "cTime": str(1700000000000 + i),
+                    "uTime": str(1700000000000 + i),
+                }
+                for i in range(100)
+            ]
+        },
+        {
+            "data": [
+                {
+                    "posId": "pos_last",
+                    "instId": "ETH-USDT-SWAP",
+                    "direction": "short",
+                    "lever": "10",
+                    "mgnMode": "cross",
+                    "openAvgPx": "3000",
+                    "closeAvgPx": "2950",
+                    "closeTotalPos": "2",
+                    "pnl": "5",
+                    "realizedPnl": "4.5",
+                    "pnlRatio": "0.02",
+                    "fee": "-0.5",
+                    "fundingFee": "0",
+                    "type": "2",
+                    "cTime": "1700009999000",
+                    "uTime": "1700009999000",
+                }
+            ]
+        },
+    ]
+    env = {"OKX_API_KEY": "k", "OKX_API_SECRET": "s", "OKX_API_PASSPHRASE": "p"}
+    with patch.dict("os.environ", env, clear=False):
+        client = OKXClient(public_only=False)
+    history = client.get_positions_history(fetch_all=True)
+    assert len(history) == 101
+    assert mock_exchange.private_get_account_positions_history.call_count == 2
 
 
 # ---------------------------------------------------------------------- #

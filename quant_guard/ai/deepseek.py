@@ -86,11 +86,11 @@ class DeepSeekClient:
                 {"role": "user", "content": description},
             ],
             "temperature": 0.3,
-            "max_tokens": 4096,
+            "max_tokens": 8192,
         }
 
         try:
-            with httpx.Client(timeout=120) as client:
+            with httpx.Client(timeout=180) as client:
                 resp = client.post(
                     f"{self.BASE_URL}/chat/completions",
                     headers=headers,
@@ -106,18 +106,30 @@ class DeepSeekClient:
             raise RuntimeError(f"DeepSeek API 调用失败: {e}") from e
 
     def _extract_code(self, content: str) -> str:
-        """从 AI 回复中提取 Python 代码。"""
-        # 尝试提取 ```python ... ``` 代码块
-        if "```python" in content:
-            start = content.index("```python") + len("```python")
-            end = content.index("```", start)
-            return content[start:end].strip()
-        elif "```" in content:
-            start = content.index("```") + 3
-            end = content.index("```", start)
-            return content[start:end].strip()
-        # 没有代码块，返回原文
-        return content.strip()
+        """从 AI 回复中提取 Python 代码（兼容缺少闭合 ``` 或被截断的回复）。"""
+        text = content.strip()
+        code = ""
+
+        if "```python" in text:
+            start = text.index("```python") + len("```python")
+            rest = text[start:]
+            end = rest.find("```")
+            code = rest[:end].strip() if end != -1 else rest.strip()
+        elif "```" in text:
+            start = text.index("```") + 3
+            rest = text[start:].lstrip()
+            if rest.lower().startswith("python"):
+                rest = rest[6:].lstrip("\n\r")
+            end = rest.find("```")
+            code = rest[:end].strip() if end != -1 else rest.strip()
+        else:
+            code = text
+
+        if not code or "class " not in code or "IStrategy" not in code:
+            raise RuntimeError(
+                "AI 未返回完整策略代码（可能被截断）。请简化策略描述，或减少指标数量后重试。"
+            )
+        return code
 
     def refine_strategy(self, code: str, feedback: str) -> str:
         """根据用户反馈修改已有策略代码。
@@ -139,3 +151,60 @@ class DeepSeekClient:
 
 请输出修改后的完整策略代码。"""
         return self.generate_strategy(prompt)
+
+    TRADE_ANALYSIS_PROMPT = """你是专业的加密货币 USDT 永续合约交易分析师。
+用户会提供实盘历史持仓的统计数据与样本交易，请深入分析交易模式、漏洞与改进方向。
+
+要求：
+1. 用中文回答，结构清晰（概览 → 模式发现 → 风险漏洞 → 改进建议 → 执行清单）
+2. 结合胜率、杠杆分布、持仓时长、多空差异、手续费/资金费给出具体结论
+3. 指出可能的情绪化交易、过度交易、杠杆滥用、止损缺失等问题
+4. 改进建议要可执行（参数、规则、风控阈值），不要空泛
+5. 若数据样本不足，明确说明局限性
+6. 不要编造数据中不存在的数字"""
+
+    def analyze_trades(self, stats: dict, sample_trades: list[dict]) -> str:
+        """基于历史持仓统计生成 AI 交易复盘分析。"""
+        if not self.is_configured:
+            raise RuntimeError(
+                "DeepSeek API 未配置。请设置环境变量 DEEPSEEK_API_KEY。"
+            )
+
+        payload_text = json.dumps(
+            {"statistics": stats, "sample_trades": sample_trades[:40]},
+            ensure_ascii=False,
+            indent=2,
+        )
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": self.TRADE_ANALYSIS_PROMPT},
+                {
+                    "role": "user",
+                    "content": f"请分析以下实盘历史持仓数据：\n\n{payload_text}",
+                },
+            ],
+            "temperature": 0.4,
+            "max_tokens": 4096,
+        }
+
+        try:
+            with httpx.Client(timeout=120) as client:
+                resp = client.post(
+                    f"{self.BASE_URL}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(
+                f"DeepSeek API 错误: {e.response.status_code} {e.response.text[:200]}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"DeepSeek API 调用失败: {e}") from e

@@ -66,6 +66,19 @@ def load_backtest_result(result_path: str) -> dict:
             return json.load(f)
 
 
+def _profit_total_pct(s: dict) -> float:
+    """Freqtrade profit_total 为小数比例，需乘 100 得到百分比。"""
+    if s.get("profit_total_pct") is not None:
+        return float(s["profit_total_pct"])
+    return float(s.get("profit_total", 0)) * 100
+
+
+def _max_drawdown_pct(s: dict) -> float:
+    """Freqtrade max_drawdown_abs 为 USDT 绝对值，百分比应读 max_drawdown_account。"""
+    ratio = s.get("max_drawdown_account", s.get("max_relative_drawdown", 0))
+    return float(ratio) * 100
+
+
 def extract_metrics(raw: dict) -> BacktestMetrics:
     """从原始回测结果提取核心指标。"""
     strategy_dict = raw.get("strategy", {})
@@ -83,8 +96,8 @@ def extract_metrics(raw: dict) -> BacktestMetrics:
         strategy=strategy_name,
         timerange=f"{s.get('backtest_start', 'N/A')} ~ {s.get('backtest_end', 'N/A')}",
         total_trades=total_trades,
-        total_profit_pct=s.get("profit_total", 0),
-        max_drawdown_pct=s.get("max_drawdown_abs", 0),
+        total_profit_pct=_profit_total_pct(s),
+        max_drawdown_pct=_max_drawdown_pct(s),
         win_rate=round(win_rate, 2),
         avg_duration=str(s.get("holding_avg", "")),
         sharpe=s.get("sharpe", 0),
