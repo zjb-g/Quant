@@ -26,6 +26,7 @@ BACKTEST_RESULTS_DIR = USERDIR / "backtest_results"
 LOG_DIR = USERDIR / "logs"
 PID_FILE = LOG_DIR / "freqtrade.pid"
 TRADE_LOG = LOG_DIR / "freqtrade.log"
+DRYRUN_DB = USERDIR / "db" / "tradesv3.dryrun.sqlite"
 PRECHECK_SCRIPT = PROJECT_ROOT / "scripts" / "precheck_dryrun.py"
 
 DEFAULT_PAIRS = [
@@ -306,6 +307,8 @@ class FreqtradeService:
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         raw["dry_run"] = True
         raw["dataformat_ohlcv"] = "feather"
+        DRYRUN_DB.parent.mkdir(parents=True, exist_ok=True)
+        raw["db_url"] = f"sqlite:///{DRYRUN_DB.relative_to(PROJECT_ROOT).as_posix()}"
         ex = raw.setdefault("exchange", {})
         # dry-run 模式不需要真实密钥，写入占位符防止 secret 泄露
         # 真实密钥通过环境变量在运行时由 ccxt 读取

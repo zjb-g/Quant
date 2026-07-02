@@ -80,11 +80,16 @@ bash scripts/precheck_dryrun.py            # dry-run 启动前检查
 ```
 crypto-quant-system/
 ├── quant_guard/        # 风控 / 执行 / API / 服务层
-├── user_data/          # Freqtrade 策略 / 配置 / 数据
+├── user_data/          # Freqtrade 策略 / 配置 / 数据 / db
 ├── frontend/           # React 前端
-├── scripts/            # 运维脚本
+├── scripts/
+│   ├── ops/            # 启停与状态
+│   ├── data/           # K 线下载、回测、dry-run
+│   └── backup/         # Cursor 备份
 ├── tests/              # pytest
 └── docs/               # 阶段门禁与决策记录
 ```
+
+脚本与数据路径详见 [docs/DIRECTORY.md](docs/DIRECTORY.md)。
 
 开发进度见 `docs/PROJECT_STATE.md`。

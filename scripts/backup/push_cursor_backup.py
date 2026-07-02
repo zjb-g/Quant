@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 STAGING = PROJECT_ROOT / "cursor-backup"
 CURSOR_REPO = Path.home() / "cursor"
 REMOTE = "git@github.com:zjb-g/cursor.git"
@@ -21,7 +21,7 @@ def run(cmd: list[str], cwd: Path) -> None:
 
 def main() -> None:
     if not STAGING.exists():
-        raise SystemExit("请先运行: python3 scripts/backup_cursor_local.py")
+        raise SystemExit("请先运行: python3 scripts/backup/backup_cursor_local.py")
 
     if not CURSOR_REPO.exists():
         run(["git", "clone", REMOTE, str(CURSOR_REPO)], cwd=CURSOR_REPO.parent)

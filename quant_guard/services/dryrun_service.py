@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DRYRUN_DB = PROJECT_ROOT / "tradesv3.dryrun.sqlite"
+USER_DATA = PROJECT_ROOT / "user_data"
+DRYRUN_DB = USER_DATA / "db" / "tradesv3.dryrun.sqlite"
 DEFAULT_WALLET = 1000.0
 
 
@@ -41,10 +42,15 @@ class DryRunSummary:
 
 
 def _db_path() -> Optional[Path]:
-    if DRYRUN_DB.exists():
-        return DRYRUN_DB
-    alt = PROJECT_ROOT / "user_data" / "tradesv3.dryrun.sqlite"
-    return alt if alt.exists() else None
+    candidates = (
+        DRYRUN_DB,
+        PROJECT_ROOT / "tradesv3.dryrun.sqlite",
+        USER_DATA / "tradesv3.dryrun.sqlite",
+    )
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
 
 
 def _fetch_mark_prices(pairs: list[str]) -> dict[str, float]:
