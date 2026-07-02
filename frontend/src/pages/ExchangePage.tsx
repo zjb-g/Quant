@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
 import {
   Card, Button, Input, Space, Tag, message, Table, Statistic, Row, Col,
-  Alert, Form, Descriptions, Tabs, Spin
+  Alert, Form, Tabs,
 } from 'antd'
 import {
   ApiOutlined, LinkOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  ReloadOutlined, WalletOutlined
+  ReloadOutlined, WalletOutlined,
 } from '@ant-design/icons'
 import { apiClient, type Position, type PositionHistory, type HistoricalTrade } from '../api/client'
+import LoadingState from '../components/LoadingState'
+import EmptyState from '../components/EmptyState'
+import { pnlColor } from '../theme'
 
 const CLOSE_TYPE_LABELS: Record<string, string> = {
   partial: '部分平仓',
@@ -101,7 +104,9 @@ export default function ExchangePage() {
     <div>
       <Row gutter={[16, 16]}>
         <Col xs={24} md={8}>
-          <Card title={<span><ApiOutlined /> 交易所连接</span>}>
+          <Card
+            title={<span><ApiOutlined style={{ marginRight: 8 }} />交易所连接</span>}
+          >
             <div style={{ marginBottom: 16 }}>
               {connected ? (
                 <Tag icon={<CheckCircleOutlined />} color="success" style={{ fontSize: 14, padding: '4px 12px' }}>
@@ -113,41 +118,61 @@ export default function ExchangePage() {
                 </Tag>
               )}
             </div>
-            {error && <Alert message={error} type="error" style={{ marginBottom: 16 }} />}
-            <Button icon={<ReloadOutlined />} onClick={loadStatus} block>刷新状态</Button>
+            {error && <Alert message={error} type="error" style={{ marginBottom: 16 }} showIcon />}
+            <Button icon={<ReloadOutlined />} onClick={loadStatus} block>
+              刷新状态
+            </Button>
           </Card>
         </Col>
+
         <Col xs={24} md={16}>
-          <Card title={<span><LinkOutlined /> 配置 API Key</span>}>
+          <Card
+            title={<span><LinkOutlined style={{ marginRight: 8 }} />配置 API Key</span>}
+          >
             <Alert
               message="API Key 将加密保存到您的账号（注册用户），仅用于拉取您自己的持仓与复盘数据。"
               type="info"
+              showIcon
               style={{ marginBottom: 16 }}
             />
             <Form form={form} layout="vertical" onFinish={handleConnect}>
-              <Form.Item label="OKX API Key" name="okx_key">
-                <Input.Password placeholder={envStatus.OKX_API_KEY ? '已配置（输入新值覆盖）' : '输入 OKX API Key'} />
-              </Form.Item>
-              <Form.Item label="OKX API Secret" name="okx_secret">
-                <Input.Password placeholder={envStatus.OKX_API_SECRET ? '已配置' : '输入 OKX API Secret'} />
-              </Form.Item>
-              <Form.Item label="OKX Passphrase" name="okx_pass">
-                <Input.Password placeholder={envStatus.OKX_API_PASSPHRASE ? '已配置' : '输入 OKX Passphrase'} />
-              </Form.Item>
-              <Form.Item label="Gate API Key（备用）" name="gate_key">
-                <Input.Password placeholder={envStatus.GATE_API_KEY ? '已配置' : '输入 Gate API Key'} />
-              </Form.Item>
-              <Form.Item label="Gate API Secret（备用）" name="gate_secret">
-                <Input.Password placeholder={envStatus.GATE_API_SECRET ? '已配置' : '输入 Gate API Secret'} />
-              </Form.Item>
-              <Space>
-                <Button type="primary" htmlType="submit" loading={loading} icon={<LinkOutlined />}>
-                  连接并测试
-                </Button>
-                {connected && (
-                  <Button onClick={loadData} icon={<ReloadOutlined />}>刷新数据</Button>
-                )}
-              </Space>
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item label="OKX API Key" name="okx_key">
+                    <Input.Password placeholder={envStatus.OKX_API_KEY ? '已配置（输入新值覆盖）' : '输入 OKX API Key'} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item label="OKX API Secret" name="okx_secret">
+                    <Input.Password placeholder={envStatus.OKX_API_SECRET ? '已配置' : '输入 OKX API Secret'} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item label="OKX Passphrase" name="okx_pass">
+                    <Input.Password placeholder={envStatus.OKX_API_PASSPHRASE ? '已配置' : '输入 OKX Passphrase'} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item label="Gate API Key（备用）" name="gate_key">
+                    <Input.Password placeholder={envStatus.GATE_API_KEY ? '已配置' : '输入 Gate API Key'} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item label="Gate API Secret（备用）" name="gate_secret">
+                    <Input.Password placeholder={envStatus.GATE_API_SECRET ? '已配置' : '输入 Gate API Secret'} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} style={{ marginTop: 4 }}>
+                  <Space>
+                    <Button type="primary" htmlType="submit" loading={loading} icon={<LinkOutlined />}>
+                      连接并测试
+                    </Button>
+                    {connected && (
+                      <Button onClick={loadData} icon={<ReloadOutlined />}>刷新数据</Button>
+                    )}
+                  </Space>
+                </Col>
+              </Row>
             </Form>
           </Card>
         </Col>
@@ -160,23 +185,38 @@ export default function ExchangePage() {
           items={[
             {
               key: 'balance',
-              label: '账户余额',
+              label: <span><WalletOutlined /> 账户余额</span>,
               children: (
                 <Card>
                   {balance ? (
-                    <Row gutter={16}>
+                    <Row gutter={[24, 16]}>
                       <Col xs={24} sm={8}>
-                        <Statistic title="总余额" value={balance.total} precision={2} suffix={balance.currency} />
+                        <Statistic
+                          title="总余额"
+                          value={balance.total}
+                          precision={2}
+                          suffix={balance.currency}
+                        />
                       </Col>
                       <Col xs={24} sm={8}>
-                        <Statistic title="可用余额" value={balance.free} precision={2} suffix={balance.currency} />
+                        <Statistic
+                          title="可用余额"
+                          value={balance.free}
+                          precision={2}
+                          suffix={balance.currency}
+                        />
                       </Col>
                       <Col xs={24} sm={8}>
-                        <Statistic title="已用保证金" value={balance.used} precision={2} suffix={balance.currency} />
+                        <Statistic
+                          title="已用保证金"
+                          value={balance.used}
+                          precision={2}
+                          suffix={balance.currency}
+                        />
                       </Col>
                     </Row>
                   ) : (
-                    <Spin tip="加载中..." />
+                    <LoadingState tip="加载余额..." />
                   )}
                 </Card>
               ),
@@ -186,33 +226,57 @@ export default function ExchangePage() {
               label: `当前持仓 (${positions.length})`,
               children: (
                 <Card>
-                  <Table
-                    dataSource={positions}
-                    rowKey={(r) => `${r.symbol}-${r.side}`}
-                    size="small"
-                    pagination={false}
-                    scroll={{ x: 720 }}
-                    columns={[
-                      { title: '币种', dataIndex: 'symbol', key: 'symbol' },
-                      {
-                        title: '方向', dataIndex: 'side', key: 'side',
-                        render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s}</Tag>,
-                      },
-                      { title: '数量', dataIndex: 'contracts', key: 'contracts', render: (v: number) => v?.toFixed(4) },
-                      { title: '开仓价', dataIndex: 'entry_price', key: 'entry_price', render: (v: number) => v?.toFixed(2) },
-                      { title: '标记价', dataIndex: 'mark_price', key: 'mark_price', render: (v: number) => v?.toFixed(2) },
-                      { title: '杠杆', dataIndex: 'leverage', key: 'leverage', render: (v: number) => `${v}x` },
-                      {
-                        title: '未实现盈亏', dataIndex: 'unrealized_pnl', key: 'pnl',
-                        render: (v: number) => (
-                          <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
-                            {v >= 0 ? '+' : ''}{v?.toFixed(2)}
-                          </span>
-                        ),
-                      },
-                      { title: '强平价', dataIndex: 'liquidation_price', key: 'liq' },
-                    ]}
-                  />
+                  {positions.length > 0 ? (
+                    <Table
+                      dataSource={positions}
+                      rowKey={(r) => `${r.symbol}-${r.side}`}
+                      size="middle"
+                      pagination={false}
+                      scroll={{ x: 800 }}
+                      columns={[
+                        { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 100 },
+                        {
+                          title: '方向', dataIndex: 'side', key: 'side', width: 60,
+                          render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s}</Tag>,
+                        },
+                        {
+                          title: '数量', dataIndex: 'contracts', key: 'contracts',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(4),
+                        },
+                        {
+                          title: '开仓价', dataIndex: 'entry_price', key: 'entry_price',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(2),
+                        },
+                        {
+                          title: '标记价', dataIndex: 'mark_price', key: 'mark_price',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(2),
+                        },
+                        {
+                          title: '杠杆', dataIndex: 'leverage', key: 'leverage',
+                          align: 'right' as const,
+                          render: (v: number) => `${v}x`,
+                        },
+                        {
+                          title: '未实现盈亏', dataIndex: 'unrealized_pnl', key: 'pnl',
+                          align: 'right' as const,
+                          render: (v: number) => (
+                            <span style={{ color: pnlColor(v), fontWeight: 500 }}>
+                              {v >= 0 ? '+' : ''}{v?.toFixed(2)}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: '强平价', dataIndex: 'liquidation_price', key: 'liq',
+                          align: 'right' as const,
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <EmptyState description="暂无持仓" />
+                  )}
                 </Card>
               ),
             },
@@ -221,43 +285,70 @@ export default function ExchangePage() {
               label: `历史持仓 (${positionHistory.length})`,
               children: (
                 <Card>
-                  <Table
-                    dataSource={positionHistory}
-                    rowKey={(r) => `${r.position_id}::${r.close_time}`}
-                    size="small"
-                    scroll={{ x: 960 }}
-                    pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
-                    columns={[
-                      { title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 180,
-                        render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-' },
-                      { title: '币种', dataIndex: 'symbol', key: 'symbol' },
-                      {
-                        title: '方向', dataIndex: 'side', key: 'side',
-                        render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s}</Tag>,
-                      },
-                      { title: '杠杆', dataIndex: 'leverage', key: 'leverage', render: (v: number) => `${v}x` },
-                      { title: '开仓价', dataIndex: 'open_avg_price', key: 'open', render: (v: number) => v?.toFixed(2) },
-                      { title: '平仓价', dataIndex: 'close_avg_price', key: 'close', render: (v: number) => v?.toFixed(2) },
-                      { title: '数量', dataIndex: 'close_size', key: 'size', render: (v: number) => v?.toFixed(4) },
-                      {
-                        title: '盈亏', dataIndex: 'pnl', key: 'pnl',
-                        render: (v: number) => (
-                          <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
-                            {v >= 0 ? '+' : ''}{v?.toFixed(4)}
-                          </span>
-                        ),
-                      },
-                      {
-                        title: '类型', dataIndex: 'close_type', key: 'type',
-                        render: (t: string) => (
-                          <Tag color={t === 'liquidation' ? 'red' : t === 'full' ? 'blue' : 'default'}>
-                            {CLOSE_TYPE_LABELS[t] || t}
-                          </Tag>
-                        ),
-                      },
-                      { title: '手续费', dataIndex: 'fee', key: 'fee', render: (v: number) => v?.toFixed(4) },
-                    ]}
-                  />
+                  {positionHistory.length > 0 ? (
+                    <Table
+                      dataSource={positionHistory}
+                      rowKey={(r) => `${r.position_id}::${r.close_time}`}
+                      size="middle"
+                      scroll={{ x: 1000 }}
+                      pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
+                      columns={[
+                        {
+                          title: '平仓时间', dataIndex: 'close_time', key: 'close_time', width: 180,
+                          render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-',
+                        },
+                        { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 100 },
+                        {
+                          title: '方向', dataIndex: 'side', key: 'side', width: 60,
+                          render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s}</Tag>,
+                        },
+                        {
+                          title: '杠杆', dataIndex: 'leverage', key: 'leverage', width: 60,
+                          align: 'right' as const,
+                          render: (v: number) => `${v}x`,
+                        },
+                        {
+                          title: '开仓价', dataIndex: 'open_avg_price', key: 'open',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(2),
+                        },
+                        {
+                          title: '平仓价', dataIndex: 'close_avg_price', key: 'close',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(2),
+                        },
+                        {
+                          title: '数量', dataIndex: 'close_size', key: 'size',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(4),
+                        },
+                        {
+                          title: '盈亏', dataIndex: 'pnl', key: 'pnl',
+                          align: 'right' as const,
+                          render: (v: number) => (
+                            <span style={{ color: pnlColor(v), fontWeight: 500 }}>
+                              {v >= 0 ? '+' : ''}{v?.toFixed(4)}
+                            </span>
+                          ),
+                        },
+                        {
+                          title: '类型', dataIndex: 'close_type', key: 'type', width: 100,
+                          render: (t: string) => (
+                            <Tag color={t === 'liquidation' ? 'red' : t === 'full' ? 'blue' : 'default'}>
+                              {CLOSE_TYPE_LABELS[t] || t}
+                            </Tag>
+                          ),
+                        },
+                        {
+                          title: '手续费', dataIndex: 'fee', key: 'fee',
+                          align: 'right' as const,
+                          render: (v: number) => v?.toFixed(4),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <EmptyState description="暂无历史持仓" />
+                  )}
                 </Card>
               ),
             },
@@ -266,25 +357,40 @@ export default function ExchangePage() {
               label: `历史交易 (${trades.length})`,
               children: (
                 <Card>
-                  <Table
-                    dataSource={trades}
-                    rowKey="id"
-                    size="small"
-                    scroll={{ x: 720 }}
-                    pagination={{ pageSize: 20 }}
-                    columns={[
-                      { title: '时间', dataIndex: 'timestamp', key: 'ts', width: 180,
-                        render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-' },
-                      { title: '币种', dataIndex: 'symbol', key: 'sym' },
-                      {
-                        title: '方向', dataIndex: 'side', key: 'side',
-                        render: (s: string) => <Tag color={s === 'buy' ? 'green' : 'red'}>{s}</Tag>,
-                      },
-                      { title: '数量', dataIndex: 'amount', key: 'amt' },
-                      { title: '价格', dataIndex: 'price', key: 'px' },
-                      { title: '手续费', dataIndex: 'fee', key: 'fee' },
-                    ]}
-                  />
+                  {trades.length > 0 ? (
+                    <Table
+                      dataSource={trades}
+                      rowKey="id"
+                      size="middle"
+                      scroll={{ x: 720 }}
+                      pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
+                      columns={[
+                        {
+                          title: '时间', dataIndex: 'timestamp', key: 'ts', width: 180,
+                          render: (t: string) => t ? new Date(t).toLocaleString('zh-CN') : '-',
+                        },
+                        { title: '币种', dataIndex: 'symbol', key: 'sym', width: 100 },
+                        {
+                          title: '方向', dataIndex: 'side', key: 'side', width: 60,
+                          render: (s: string) => <Tag color={s === 'buy' ? 'green' : 'red'}>{s}</Tag>,
+                        },
+                        {
+                          title: '数量', dataIndex: 'amount', key: 'amt',
+                          align: 'right' as const,
+                        },
+                        {
+                          title: '价格', dataIndex: 'price', key: 'px',
+                          align: 'right' as const,
+                        },
+                        {
+                          title: '手续费', dataIndex: 'fee', key: 'fee',
+                          align: 'right' as const,
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <EmptyState description="暂无历史交易" />
+                  )}
                 </Card>
               ),
             },

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Card, Select, Table, Tag, Statistic, Row, Col, Spin, message, Button, Input, Space, Alert, Progress,
+  Card, Select, Table, Tag, Statistic, Row, Col, message, Button, Input, Space, Alert, Progress,
 } from 'antd'
 import { PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import {
@@ -20,6 +20,10 @@ import {
   type StrategyInfo,
 } from '../api/client'
 import { useIsMobile } from '../hooks/useIsMobile'
+import LoadingState from '../components/LoadingState'
+import EmptyState from '../components/EmptyState'
+import ErrorState from '../components/ErrorState'
+import { pnlColor, numAlign } from '../theme'
 
 export default function BacktestPage() {
   const [backtestIds, setBacktestIds] = useState<{id: string; strategy: string; timestamp: string}[]>([])
@@ -188,28 +192,34 @@ export default function BacktestPage() {
 
   return (
     <div>
-      <Card title="运行回测（历史 K 线）" style={{ marginBottom: 16 }}>
+      {/* 运行回测卡片 */}
+      <Card
+        title="运行回测（历史 K 线）"
+        style={{ marginBottom: 16 }}
+        extra={
+          <Button icon={<ReloadOutlined />} onClick={() => refreshList(false)}>
+            刷新列表
+          </Button>
+        }
+      >
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 12 }}
-          message="使用本地 Binance 永续 K 线数据。建议先用 1–3 个月短区间测试；默认已改为最近 90 天。"
+          style={{ marginBottom: 16 }}
+          message="使用本地 Binance 永续 K 线数据。建议先用 1–3 个月短区间测试。"
         />
         {lastError && (
-          <Alert
-            type="error"
-            showIcon
-            closable
-            style={{ marginBottom: 12 }}
+          <ErrorState
             message="回测错误"
-            description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{lastError}</pre>}
-            onClose={() => setLastError(null)}
+            description={lastError}
+            onRetry={() => setLastError(null)}
           />
         )}
+
         <Space direction={isMobile ? 'vertical' : 'horizontal'} wrap style={{ width: '100%' }}>
           <Select
             className={isMobile ? 'mobile-full-width' : undefined}
-            style={{ width: isMobile ? '100%' : 240 }}
+            style={{ width: isMobile ? '100%' : 260 }}
             value={runStrategy}
             onChange={setRunStrategy}
             options={strategies.map((s) => ({
@@ -217,10 +227,11 @@ export default function BacktestPage() {
               label: s.id && s.id !== s.name ? `${s.name} (${s.id})` : s.name,
               disabled: s.has_errors,
             }))}
+            placeholder="选择策略"
           />
           <Input
             className={isMobile ? 'mobile-full-width' : undefined}
-            style={{ width: isMobile ? '100%' : 220 }}
+            style={{ width: isMobile ? '100%' : 240 }}
             value={timerange}
             onChange={(e) => setTimerange(e.target.value)}
             placeholder="20250601-20250630"
@@ -231,25 +242,31 @@ export default function BacktestPage() {
             icon={<PlayCircleOutlined />}
             onClick={handleRunBacktest}
             disabled={!!runningJob}
+            size="middle"
           >
             运行回测
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => refreshList(false)}>刷新列表</Button>
         </Space>
+
         {runningJob && (
           <div style={{ marginTop: 16 }}>
-            <Progress percent={runningJob.status === 'running' ? 50 : 10} status="active" />
-            <span style={{ marginLeft: 8, color: '#999' }}>
+            <Progress
+              percent={runningJob.status === 'running' ? 50 : 10}
+              status="active"
+              strokeColor="#1677ff"
+            />
+            <div style={{ marginTop: 6, fontSize: 13, color: 'var(--app-text-muted)' }}>
               {runningJob.strategy} · {runningJob.timerange} · {runningJob.status}
-            </span>
+            </div>
           </div>
         )}
       </Card>
 
+      {/* 回测结果选择 */}
       <Card title="回测结果选择" style={{ marginBottom: 16 }}>
         <Select
-          style={{ width: '100%', maxWidth: 480 }}
-          placeholder="选择回测结果"
+          style={{ width: '100%', maxWidth: 500 }}
+          placeholder="选择历史回测结果"
           value={selectedId}
           onChange={setSelectedId}
           options={backtestIds.map((bt) => ({
@@ -264,16 +281,24 @@ export default function BacktestPage() {
           <Alert style={{ marginTop: 12 }} type="info" message="请从上方下拉框选择一个历史回测结果" />
         )}
         {backtestIds.length === 0 && !runningJob && (
-          <Alert style={{ marginTop: 12 }} type="warning" message="暂无回测结果，请先运行回测" />
+          <EmptyState
+            description="暂无回测结果"
+            detail="请先运行回测以生成分析报告"
+          />
         )}
       </Card>
 
-      {loading && <Spin size="large" style={{ display: 'flex', justifyContent: 'center', padding: 60 }} />}
+      {/* 加载状态 */}
+      {loading && <LoadingState tip="加载回测结果..." />}
 
+      {/* 回测详情 */}
       {summary && !loading && (
         <>
+          {/* 核心指标 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-            <Col xs={12} sm={8} md={4}><Card><Statistic title="总交易数" value={summary.total_trades} /></Card></Col>
+            <Col xs={12} sm={8} md={4}>
+              <Card><Statistic title="总交易数" value={summary.total_trades} /></Card>
+            </Col>
             <Col xs={12} sm={8} md={4}>
               <Card>
                 <Statistic
@@ -281,7 +306,7 @@ export default function BacktestPage() {
                   value={summary.total_profit_pct}
                   precision={2}
                   suffix="%"
-                  valueStyle={{ color: summary.total_profit_pct >= 0 ? '#3f8600' : '#cf1322' }}
+                  valueStyle={{ color: pnlColor(summary.total_profit_pct) }}
                 />
               </Card>
             </Col>
@@ -292,62 +317,107 @@ export default function BacktestPage() {
                   value={summary.max_drawdown_pct}
                   precision={2}
                   suffix="%"
-                  valueStyle={{ color: '#cf1322' }}
+                  valueStyle={{ color: '#ff4d4f' }}
                 />
               </Card>
             </Col>
-            <Col xs={12} sm={8} md={4}><Card><Statistic title="胜率" value={summary.win_rate} precision={1} suffix="%" /></Card></Col>
-            <Col xs={12} sm={8} md={4}><Card><Statistic title="Sharpe" value={summary.sharpe} precision={2} /></Card></Col>
-            <Col xs={24} sm={12} md={4}><Card><Statistic title="时间范围" value={summary.timerange} valueStyle={{ fontSize: 14 }} /></Card></Col>
+            <Col xs={12} sm={8} md={4}>
+              <Card>
+                <Statistic
+                  title="胜率"
+                  value={summary.win_rate}
+                  precision={1}
+                  suffix="%"
+                  valueStyle={{ color: summary.win_rate >= 50 ? '#52c41a' : '#ff4d4f' }}
+                />
+              </Card>
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Card><Statistic title="Sharpe" value={summary.sharpe} precision={2} /></Card>
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <Card>
+                <Statistic
+                  title="时间范围"
+                  value={summary.timerange}
+                  valueStyle={{ fontSize: 14 }}
+                />
+              </Card>
+            </Col>
           </Row>
 
+          {/* 收益曲线 */}
           {equityData.length > 0 && (
             <Card title="累计收益曲线" style={{ marginBottom: 16 }}>
-              <ResponsiveContainer width="100%" height={320}>
+              <ResponsiveContainer width="100%" height={340}>
                 <LineChart data={equityData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
                   <XAxis dataKey="timestamp" fontSize={11} />
                   <YAxis fontSize={11} />
                   <Tooltip />
-                  <Line type="monotone" dataKey="cumProfit" stroke="#1890ff" strokeWidth={2} dot={false} />
+                  <Line
+                    type="monotone"
+                    dataKey="cumProfit"
+                    stroke="#1677ff"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 4 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </Card>
           )}
 
+          {/* 交易明细 */}
           {trades.length > 0 && (
             <Card title={`交易明细（${trades.length} 笔）`}>
               <Table
                 dataSource={trades.slice(0, 200)}
                 rowKey={(r) => `${r.pair}-${r.open_date}-${r.close_date}`}
-                size="small"
-                pagination={{ pageSize: 50 }}
-                scroll={{ x: 800 }}
+                size="middle"
+                pagination={{ pageSize: 50, showTotal: (t) => `共 ${t} 笔` }}
+                scroll={{ x: 900 }}
                 columns={[
-                  { title: '币种', dataIndex: 'pair', key: 'pair' },
+                  { title: '币种', dataIndex: 'pair', key: 'pair', width: 90 },
                   {
                     title: '方向',
                     dataIndex: 'side',
                     key: 'side',
+                    width: 70,
                     render: (s: string) => (
-                      <Tag color={s === 'long' ? 'green' : 'red'}>{s === 'long' ? '多' : '空'}</Tag>
+                      <Tag color={s === 'long' ? 'green' : 'red'}>
+                        {s === 'long' ? '多' : '空'}
+                      </Tag>
                     ),
                   },
                   { title: '开仓时间', dataIndex: 'open_date', key: 'open_date', width: 160 },
                   { title: '平仓时间', dataIndex: 'close_date', key: 'close_date', width: 160 },
-                  { title: '开仓价', dataIndex: 'open_rate', key: 'open_rate' },
-                  { title: '平仓价', dataIndex: 'close_rate', key: 'close_rate' },
+                  {
+                    title: '开仓价',
+                    dataIndex: 'open_rate',
+                    key: 'open_rate',
+                    ...numAlign,
+                    render: (v: number) => v?.toFixed(2),
+                  },
+                  {
+                    title: '平仓价',
+                    dataIndex: 'close_rate',
+                    key: 'close_rate',
+                    ...numAlign,
+                    render: (v: number) => v?.toFixed(2),
+                  },
                   {
                     title: '收益率',
                     dataIndex: 'profit_pct',
                     key: 'profit_pct',
+                    ...numAlign,
                     render: (v: number) => (
-                      <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
+                      <span style={{ color: pnlColor(v), fontWeight: 500 }}>
                         {v >= 0 ? '+' : ''}{v?.toFixed(2)}%
                       </span>
                     ),
                   },
-                  { title: '退出原因', dataIndex: 'exit_reason', key: 'exit_reason' },
+                  { title: '退出原因', dataIndex: 'exit_reason', key: 'exit_reason', width: 120 },
                 ]}
               />
             </Card>

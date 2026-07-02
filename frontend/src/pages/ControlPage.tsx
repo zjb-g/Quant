@@ -1,12 +1,22 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Space, Input, Form, InputNumber, message, Modal, Tag, Statistic, Row, Col, Divider, Select, Alert, Table } from 'antd'
-import { PlayCircleOutlined, PauseCircleOutlined, StopOutlined, ThunderboltOutlined, SaveOutlined, ReloadOutlined } from '@ant-design/icons'
+import {
+  Card, Button, Space, Input, Form, InputNumber, message, Modal, Tag,
+  Statistic, Row, Col, Divider, Select, Alert, Table,
+} from 'antd'
+import {
+  PlayCircleOutlined, PauseCircleOutlined, StopOutlined,
+  ThunderboltOutlined, SaveOutlined, ReloadOutlined,
+  SettingOutlined, SafetyOutlined,
+} from '@ant-design/icons'
 import { apiClient, type RiskConfig, type RiskState, type BotStatus, type Position } from '../api/client'
 import { useStrategies } from '../hooks/useStrategies'
+import EmptyState from '../components/EmptyState'
+import ErrorState from '../components/ErrorState'
+import { pnlColor, numAlign } from '../theme'
 
 export default function ControlPage() {
   const [riskState, setRiskState] = useState<RiskState | null>(null)
-  const [config, setConfig] = useState<RiskConfig | null>(null)
+  const setConfig = useState<RiskConfig | null>(null)[1];
   const [botStatus, setBotStatus] = useState<BotStatus | null>(null)
   const [dryRunPositions, setDryRunPositions] = useState<Position[]>([])
   const {
@@ -144,32 +154,28 @@ export default function ControlPage() {
   return (
     <div>
       <Row gutter={[16, 16]}>
-        <Col xs={24} md={12}>
-          <Card title="Bot 控制（Freqtrade dry-run）">
+        {/* Bot 控制 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={<span><PlayCircleOutlined style={{ marginRight: 8 }} />Bot 控制（Freqtrade dry-run）</span>}
+          >
             <Alert
               type="warning"
               showIcon
-              style={{ marginBottom: 12 }}
+              style={{ marginBottom: 16 }}
               message="启动后会运行 Freqtrade 模拟盘（dry_run=true），使用 OKX 行情，不会真实下单。"
             />
             {strategiesError && (
-              <Alert
-                type="error"
-                showIcon
-                style={{ marginBottom: 12 }}
+              <ErrorState
                 message="策略列表加载失败"
                 description={strategiesError}
-                action={(
-                  <Button size="small" onClick={() => void refreshStrategies()}>
-                    重试
-                  </Button>
-                )}
+                onRetry={() => void refreshStrategies()}
               />
             )}
             <Space direction="vertical" style={{ width: '100%' }} size="middle">
               <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
-                <span style={{ color: '#999', fontSize: 13 }}>
-                  与「策略管理」共用同一列表 · 可运行 {runnableCount} 个
+                <span style={{ color: 'var(--app-text-muted)', fontSize: 13 }}>
+                  「策略管理」列表中可运行 {runnableCount} 个策略
                 </span>
                 <Button
                   size="small"
@@ -190,7 +196,7 @@ export default function ControlPage() {
                 loading={strategiesLoading}
                 placeholder="选择策略（类名）"
                 options={strategyOptions}
-                notFoundContent={strategiesLoading ? '加载中…' : '暂无可用策略，请先在策略管理中添加'}
+                notFoundContent={strategiesLoading ? '加载中…' : '暂无可用策略'}
               />
               <Space wrap size="middle">
                 <Button
@@ -201,7 +207,7 @@ export default function ControlPage() {
                   disabled={botStatus?.running}
                   size="large"
                 >
-                  启动
+                  启动 Bot
                 </Button>
                 <Button
                   danger
@@ -211,38 +217,51 @@ export default function ControlPage() {
                   disabled={!botStatus?.running}
                   size="large"
                 >
-                  停止
+                  停止 Bot
                 </Button>
               </Space>
             </Space>
             <Divider />
-            <Row gutter={16}>
-              <Col xs={24} sm={8}>
+            <Row gutter={[16, 16]}>
+              <Col xs={8}>
                 <Statistic
                   title="运行状态"
                   value={botStatus?.running ? '运行中' : '已停止'}
-                  valueStyle={{ color: botStatus?.running ? '#3f8600' : '#999' }}
+                  valueStyle={{
+                    color: botStatus?.running ? '#52c41a' : 'var(--app-text-muted)',
+                    fontSize: 20,
+                  }}
                 />
               </Col>
-              <Col xs={24} sm={8}>
+              <Col xs={8}>
                 <Statistic title="进程 PID" value={botStatus?.pid ?? '-'} />
               </Col>
-              <Col xs={24} sm={8}>
-                <Statistic title="策略" value={botStatus?.strategy ?? '-'} valueStyle={{ fontSize: 14 }} />
+              <Col xs={8}>
+                <Statistic
+                  title="策略"
+                  value={botStatus?.strategy ?? '-'}
+                  valueStyle={{ fontSize: 14 }}
+                />
               </Col>
             </Row>
             {botStatus?.log_tail && botStatus.log_tail.length > 0 && (
               <pre style={{
-                marginTop: 12, padding: 8, background: '#111', color: '#aaa',
-                fontSize: 11, maxHeight: 120, overflow: 'auto', borderRadius: 4,
+                marginTop: 12, padding: 10, background: '#0d1117',
+                color: '#8b949e', fontSize: 11, maxHeight: 120,
+                overflow: 'auto', borderRadius: 6,
+                border: '1px solid rgba(148, 163, 184, 0.12)',
               }}>
                 {botStatus.log_tail.slice(-8).join('\n')}
               </pre>
             )}
           </Card>
         </Col>
-        <Col xs={24} md={12}>
-          <Card title="紧急操作">
+
+        {/* 紧急操作 */}
+        <Col xs={24} lg={12}>
+          <Card
+            title={<span><SafetyOutlined style={{ marginRight: 8 }} />紧急操作</span>}
+          >
             <Space direction="vertical" style={{ width: '100%' }} size="large">
               <Button
                 block
@@ -267,27 +286,79 @@ export default function ControlPage() {
               >
                 紧急全平（需二次确认）
               </Button>
-              <div style={{ fontSize: 12, color: '#999' }}>
-                Kill Switch 激活后禁止开新仓，仅允许 reduce-only 平仓。
-                紧急全平需经过两次确认才会真实执行。
-              </div>
+              <Alert
+                type="info"
+                showIcon
+                message="Kill Switch 激活后禁止开新仓，仅允许 reduce-only 平仓。紧急全平需经过两次确认才会真实执行。"
+                style={{ fontSize: 12 }}
+              />
             </Space>
+          </Card>
+
+          {/* 风控状态卡片 */}
+          <Card
+            title={<span><SettingOutlined style={{ marginRight: 8 }} />风控状态</span>}
+            style={{ marginTop: 16 }}
+          >
+            {riskState ? (
+              <Row gutter={[16, 16]}>
+                <Col xs={12} sm={6}>
+                  <Statistic
+                    title="总敞口"
+                    value={riskState.current_total_notional ?? 0}
+                    precision={2}
+                    suffix="USDT"
+                  />
+                </Col>
+                <Col xs={12} sm={6}>
+                  <Statistic
+                    title="最大回撤"
+                    value={riskState.max_drawdown_pct ?? 0}
+                    precision={2}
+                    suffix="%"
+                    valueStyle={{
+                      color: (riskState.max_drawdown_pct ?? 0) > 10 ? '#ff4d4f' : '#52c41a',
+                    }}
+                  />
+                </Col>
+                <Col xs={12} sm={6}>
+                  <Statistic
+                    title="每日亏损"
+                    value={riskState.daily_loss_pct ?? 0}
+                    precision={2}
+                    suffix="%"
+                  />
+                </Col>
+                <Col xs={12} sm={6}>
+                  <Statistic
+                    title="Kill Switch"
+                    value={riskState.kill_switch ? '激活' : '正常'}
+                    valueStyle={{
+                      color: riskState.kill_switch ? '#ff4d4f' : '#52c41a',
+                    }}
+                  />
+                </Col>
+              </Row>
+            ) : (
+              <EmptyState description="暂无风控数据" />
+            )}
           </Card>
         </Col>
       </Row>
 
+      {/* 模拟盘持仓 */}
       {(botStatus?.running || dryRunPositions.length > 0) && botStatus?.dry_run !== false && (
         <Card
           title="模拟盘持仓（dry-run）"
           style={{ marginTop: 16 }}
           extra={(
             <Tag color="blue">
-              钱包 {botStatus.dryrun_summary?.wallet_balance?.toFixed(2) ?? '-'} USDT
+              钱包 {botStatus?.dryrun_summary?.wallet_balance?.toFixed(2) ?? '-'} USDT
             </Tag>
           )}
         >
-          {botStatus.dryrun_summary && (
-            <Row gutter={16} style={{ marginBottom: 16 }}>
+          {botStatus?.dryrun_summary && (
+            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
               <Col xs={12} sm={6}>
                 <Statistic title="开仓笔数" value={botStatus.dryrun_summary.open_trades} />
               </Col>
@@ -297,9 +368,7 @@ export default function ControlPage() {
                   value={botStatus.dryrun_summary.total_unrealized_pnl}
                   precision={2}
                   suffix="U"
-                  valueStyle={{
-                    color: botStatus.dryrun_summary.total_unrealized_pnl >= 0 ? '#3f8600' : '#cf1322',
-                  }}
+                  valueStyle={{ color: pnlColor(botStatus.dryrun_summary.total_unrealized_pnl) }}
                 />
               </Col>
               <Col xs={12} sm={6}>
@@ -308,6 +377,7 @@ export default function ControlPage() {
                   value={botStatus.dryrun_summary.total_realized_pnl}
                   precision={2}
                   suffix="U"
+                  valueStyle={{ color: pnlColor(botStatus.dryrun_summary.total_realized_pnl) }}
                 />
               </Col>
               <Col xs={12} sm={6}>
@@ -323,24 +393,41 @@ export default function ControlPage() {
           <Table
             dataSource={dryRunPositions}
             rowKey={(r) => `${r.symbol}-${r.side}`}
-            size="small"
+            size="middle"
             pagination={false}
             scroll={{ x: 720 }}
             locale={{ emptyText: '暂无模拟持仓，策略开仓后会显示在这里' }}
             columns={[
-              { title: '币种', dataIndex: 'symbol', key: 'symbol' },
+              { title: '币种', dataIndex: 'symbol', key: 'symbol', width: 100 },
               {
-                title: '方向', dataIndex: 'side', key: 'side',
+                title: '方向', dataIndex: 'side', key: 'side', width: 60,
                 render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s === 'long' ? '多' : '空'}</Tag>,
               },
-              { title: '数量', dataIndex: 'contracts', key: 'contracts', render: (v: number) => v?.toFixed(4) },
-              { title: '开仓价', dataIndex: 'entry_price', key: 'entry', render: (v: number) => v?.toFixed(2) },
-              { title: '标记价', dataIndex: 'mark_price', key: 'mark', render: (v: number) => v?.toFixed(2) },
-              { title: '杠杆', dataIndex: 'leverage', key: 'lev', render: (v: number) => `${v}x` },
+              {
+                title: '数量', dataIndex: 'contracts', key: 'contracts',
+                ...numAlign,
+                render: (v: number) => v?.toFixed(4),
+              },
+              {
+                title: '开仓价', dataIndex: 'entry_price', key: 'entry',
+                ...numAlign,
+                render: (v: number) => v?.toFixed(2),
+              },
+              {
+                title: '标记价', dataIndex: 'mark_price', key: 'mark',
+                ...numAlign,
+                render: (v: number) => v?.toFixed(2),
+              },
+              {
+                title: '杠杆', dataIndex: 'leverage', key: 'lev',
+                ...numAlign,
+                render: (v: number) => `${v}x`,
+              },
               {
                 title: '未实现盈亏', dataIndex: 'unrealized_pnl', key: 'pnl',
+                ...numAlign,
                 render: (v: number) => (
-                  <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>
+                  <span style={{ color: pnlColor(v), fontWeight: 500 }}>
                     {v >= 0 ? '+' : ''}{v?.toFixed(2)} U
                   </span>
                 ),
@@ -350,7 +437,11 @@ export default function ControlPage() {
         </Card>
       )}
 
-      <Card title="风控参数配置" style={{ marginTop: 16 }}>
+      {/* 风控参数配置 */}
+      <Card
+        title={<span><SettingOutlined style={{ marginRight: 8 }} />风控参数配置</span>}
+        style={{ marginTop: 16 }}
+      >
         <Form form={form} layout="inline">
           <Row gutter={[16, 16]} style={{ width: '100%' }}>
             <Col xs={24} sm={12} md={6}>
@@ -388,7 +479,7 @@ export default function ControlPage() {
                 <InputNumber addonAfter="%" style={{ width: '100%' }} />
               </Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={6}>
+            <Col xs={24} sm={12} md={6} style={{ display: 'flex', alignItems: 'flex-end' }}>
               <Form.Item>
                 <Button type="primary" icon={<SaveOutlined />} onClick={handleSaveConfig}>
                   保存配置

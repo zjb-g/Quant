@@ -131,7 +131,15 @@ class RiskManager:
                 self._emit_alert("WARNING", "risk_rejected", d.reason)
                 return d
 
-        # 5. 单币敞口（RISK-02）
+        # 5. 单币敞口（RISK-02）— FAIL-CLOSED: 缺失 account_state 或字段时拒绝
+        if not isinstance(account_state, dict) or "symbol_notionals" not in account_state:
+            d = RiskDecision(
+                action=DecisionAction.REJECT,
+                reason="风控数据不可用：account_state.symbol_notionals 缺失",
+                rule_id="RISK-02",
+            )
+            self._emit_alert("CRITICAL", "risk_data_missing", d.reason)
+            return d
         current_symbol_notional = account_state.get("symbol_notionals", {}).get(symbol, 0)
         d = check_symbol_exposure(
             symbol, notional, current_symbol_notional, self.config, is_reduce
@@ -140,7 +148,15 @@ class RiskManager:
             self._emit_alert("WARNING", "risk_rejected", d.reason)
             return d
 
-        # 6. 总敞口（RISK-03）
+        # 6. 总敞口（RISK-03）— FAIL-CLOSED: 缺失时拒绝
+        if "current_total_notional" not in account_state:
+            d = RiskDecision(
+                action=DecisionAction.REJECT,
+                reason="风控数据不可用：account_state.current_total_notional 缺失",
+                rule_id="RISK-03",
+            )
+            self._emit_alert("CRITICAL", "risk_data_missing", d.reason)
+            return d
         current_total = account_state.get("current_total_notional", 0)
         d = check_total_exposure(notional, current_total, self.config, is_reduce)
         if d:
@@ -153,7 +169,15 @@ class RiskManager:
             self._emit_alert("WARNING", "risk_rejected", d.reason)
             return d
 
-        # 8. 强平距离（RISK-04）
+        # 8. 强平距离（RISK-04）— FAIL-CLOSED: 缺失时拒绝
+        if not isinstance(market_state, dict) or "liquidation_distance_pct" not in market_state:
+            d = RiskDecision(
+                action=DecisionAction.REJECT,
+                reason="风控数据不可用：market_state.liquidation_distance_pct 缺失",
+                rule_id="RISK-04",
+            )
+            self._emit_alert("CRITICAL", "risk_data_missing", d.reason)
+            return d
         liq_dist = market_state.get("liquidation_distance_pct", 100.0)
         d = check_liquidation_distance(liq_dist, self.config, is_reduce)
         if d:

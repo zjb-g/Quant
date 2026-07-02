@@ -89,6 +89,7 @@ user_data/hyperopt_results/
 user_data/notebooks/.ipynb_checkpoints/
 user_data/tradesv3*.sqlite*
 tradesv3*.sqlite*
+cursor-backup/
 user_data/db/
 user_data/strategies/__pycache__/
 

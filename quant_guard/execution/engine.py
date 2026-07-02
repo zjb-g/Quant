@@ -77,8 +77,8 @@ class ExecutionEngine:
                 side=order.side.value,
                 signal_id=order.signal_id,
             )
-
-        if self.idempotency.is_submitted(order.client_order_id):
+        # 1. 幂等检查（原子操作：check + mark 在同一调用中，避免并发窗口）
+        if not self.idempotency.check_and_mark(order.client_order_id):
             logger.warning("duplicate order skipped: %s", order.client_order_id)
             return OrderResult(
                 client_order_id=order.client_order_id,
@@ -132,7 +132,6 @@ class ExecutionEngine:
 
     def _dry_run_order(self, order: OrderRequest) -> OrderResult:
         """模拟下单（dry-run）。"""
-        self.idempotency.mark_submitted(order.client_order_id)
         logger.info("dry-run order: %s %s %s", order.symbol, order.side.value, order.amount)
         return OrderResult(
             client_order_id=order.client_order_id,
@@ -152,7 +151,7 @@ class ExecutionEngine:
         if self.exchange is None:
             raise RuntimeError("exchange client not configured for live mode")
 
-        self.idempotency.mark_submitted(order.client_order_id)
+        self.idempotency.mark_submitted(order.client_order_id)  # 已经由 check_and_mark 标记，此处保留作为安全网
         logger.info("live order: %s %s %s", order.symbol, order.side.value, order.amount)
 
         try:

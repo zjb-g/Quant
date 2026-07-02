@@ -14,6 +14,7 @@ import {
   type PositionHistory,
 } from '../api/client'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { pnlColor, numAlign } from '../theme'
 
 type ChartLib = typeof import('lightweight-charts')
 type IChartApi = import('lightweight-charts').IChartApi
@@ -209,7 +210,7 @@ export default function TradeReviewPage() {
       }
 
       try {
-        markersApi.current = createSeriesMarkers(series, lwMarkers)
+        markersApi.current = (createSeriesMarkers as any)(series, lwMarkers)
       } catch (markerErr) {
         console.warn('标记渲染失败，K线仍可用', markerErr)
       }
@@ -402,7 +403,7 @@ export default function TradeReviewPage() {
                 value={data.total_pnl}
                 precision={2}
                 suffix="USDT"
-                valueStyle={{ color: data.total_pnl >= 0 ? '#3f8600' : '#cf1322' }}
+                valueStyle={{ color: data.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}
               />
             </Col>
             <Col xs={12} sm={6}>
@@ -500,14 +501,18 @@ export default function TradeReviewPage() {
               onFilter: (v, r) => r.side === v,
               render: (s: string) => <Tag color={s === 'long' ? 'green' : 'red'}>{s === 'long' ? '多' : '空'}</Tag>,
             },
-            { title: '杠杆', dataIndex: 'leverage', width: 70, render: (v: number) => `${v}x` },
-            { title: '开仓价', dataIndex: 'open_avg_price', render: (v: number) => v?.toFixed(4) },
-            { title: '平仓价', dataIndex: 'close_avg_price', render: (v: number) => v?.toFixed(4) },
+            { title: '杠杆', dataIndex: 'leverage', width: 70, ...numAlign, render: (v: number) => `${v}x` },
             {
-              title: '盈亏', dataIndex: 'pnl', width: 100,
+              title: '开仓价', dataIndex: 'open_avg_price', ...numAlign, render: (v: number) => v?.toFixed(4),
+            },
+            {
+              title: '平仓价', dataIndex: 'close_avg_price', ...numAlign, render: (v: number) => v?.toFixed(4),
+            },
+            {
+              title: '盈亏', dataIndex: 'pnl', width: 100, ...numAlign,
               sorter: (a, b) => a.pnl - b.pnl,
               render: (v: number) => (
-                <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322', fontWeight: 600 }}>
+                <span style={{ color: pnlColor(v), fontWeight: 600 }}>
                   {v >= 0 ? '+' : ''}{v?.toFixed(4)}
                 </span>
               ),

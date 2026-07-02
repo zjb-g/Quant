@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Layout, Menu, Badge, Button, Drawer, theme } from 'antd'
+import { useState, useEffect, useMemo } from 'react'
+import { Layout, Menu, Badge, Button, Drawer, Tag, Breadcrumb } from 'antd'
 import {
   DashboardOutlined,
   LineChartOutlined,
@@ -12,24 +12,72 @@ import {
   LogoutOutlined,
   MenuOutlined,
 } from '@ant-design/icons'
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom'
 import { apiClient, clearAuthToken } from '../api/client'
+import ThemeToggle from '../components/ThemeToggle'
 import { useIsMobile } from '../hooks/useIsMobile'
+import type { MenuProps } from 'antd'
 
 const { Header, Sider, Content } = Layout
+
+type MenuItem = Required<MenuProps>['items'][number]
+
+const PAGE_TITLES: Record<string, string> = {
+  '/dashboard': '仪表盘',
+  '/backtest': '回测分析',
+  '/strategy': '策略管理',
+  '/exchange': '交易所连接',
+  '/review': '持仓复盘',
+  '/analysis': '持仓分析',
+  '/control': '控制台',
+  '/alerts': '告警中心',
+}
+
+const BREADCRUMB_NAMES: Record<string, string> = {
+  '/dashboard': '仪表盘',
+  '/backtest': '回测分析',
+  '/strategy': '策略管理',
+  '/exchange': '交易所连接',
+  '/review': '持仓复盘',
+  '/analysis': '持仓分析',
+  '/control': '控制台',
+  '/alerts': '告警中心',
+}
+
+function buildBreadcrumbs(pathname: string): { title: React.ReactNode; path: string }[] {
+  const items = [{ title: '首页', path: '/dashboard' }]
+  if (pathname === '/dashboard') return items
+  const name = BREADCRUMB_NAMES[pathname]
+  if (name) items.push({ title: name, path: pathname })
+  return items
+}
 
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [alertCount, setAlertCount] = useState(0)
   const [authEnabled, setAuthEnabled] = useState(false)
+  const [okxConnected, setOkxConnected] = useState<boolean | null>(null)
   const location = useLocation()
   const navigate = useNavigate()
-  const { token } = theme.useToken()
   const isMobile = useIsMobile()
+
+  const pageTitle = PAGE_TITLES[location.pathname] ?? '量化系统'
+  const breadcrumbs = buildBreadcrumbs(location.pathname)
 
   useEffect(() => {
     apiClient.authStatus().then((s) => setAuthEnabled(s.enabled)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const checkOkx = () => {
+      apiClient.getExchangeStatus()
+        .then((s) => setOkxConnected(s.connected))
+        .catch(() => setOkxConnected(false))
+    }
+    checkOkx()
+    const timer = setInterval(checkOkx, 30000)
+    return () => clearInterval(timer)
   }, [])
 
   useEffect(() => {
@@ -48,29 +96,57 @@ export default function MainLayout() {
     setDrawerOpen(false)
   }, [location.pathname])
 
-  const menuItems = [
-    { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
-    { key: '/backtest', icon: <LineChartOutlined />, label: '回测分析' },
-    { key: '/strategy', icon: <CodeOutlined />, label: '策略管理' },
-    { key: '/exchange', icon: <ApiOutlined />, label: '交易所连接' },
-    { key: '/review', icon: <FundOutlined />, label: '持仓复盘' },
-    { key: '/analysis', icon: <BarChartOutlined />, label: '持仓分析' },
-    { key: '/control', icon: <ControlOutlined />, label: '控制台' },
+  const menuItems: MenuItem[] = useMemo(() => [
     {
-      key: '/alerts',
-      icon: (
-        <Badge count={alertCount} size="small" offset={[6, 0]}>
-          <AlertOutlined />
-        </Badge>
-      ),
-      label: '告警',
+      type: 'group',
+      label: '交易类',
+      key: 'group-trading',
+      children: [
+        { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
+        { key: '/exchange', icon: <ApiOutlined />, label: '交易所连接' },
+        { key: '/review', icon: <FundOutlined />, label: '持仓复盘' },
+        { key: '/analysis', icon: <BarChartOutlined />, label: '持仓分析' },
+      ],
     },
-  ]
+    {
+      type: 'group',
+      label: '策略类',
+      key: 'group-strategy',
+      children: [
+        { key: '/strategy', icon: <CodeOutlined />, label: '策略管理' },
+        { key: '/backtest', icon: <LineChartOutlined />, label: '回测分析' },
+      ],
+    },
+    {
+      type: 'group',
+      label: '系统类',
+      key: 'group-system',
+      children: [
+        { key: '/control', icon: <ControlOutlined />, label: '控制台' },
+        {
+          key: '/alerts',
+          icon: (
+            <Badge count={alertCount} size="small" offset={[6, 0]}>
+              <AlertOutlined />
+            </Badge>
+          ),
+          label: '告警中心',
+        },
+      ],
+    },
+  ], [alertCount])
 
-  const handleMenuClick = ({ key }: { key: string }) => {
+  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     navigate(key)
     if (isMobile) setDrawerOpen(false)
   }
+
+  const brand = (compact?: boolean) => (
+    <div className={`app-brand${compact ? ' collapsed' : ''}`}>
+      <div className="app-brand-mark">Q</div>
+      {!compact && <span className="app-brand-text">Crypto Quant</span>}
+    </div>
+  )
 
   const menu = (
     <Menu
@@ -81,31 +157,29 @@ export default function MainLayout() {
     />
   )
 
+  const okxTag = (
+    <Tag
+      className="okx-tag"
+      color={okxConnected === null ? 'default' : okxConnected ? 'success' : 'error'}
+      style={{ margin: 0, fontSize: isMobile ? 12 : 13, borderRadius: 20, padding: '2px 10px' }}
+    >
+      {okxConnected === null ? '检测 OKX…' : okxConnected ? '已连接 OKX' : '未连接 OKX'}
+    </Tag>
+  )
+
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className="app-shell">
       {!isMobile && (
         <Sider
+          className="app-sider"
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
-          style={{ background: token.colorBgContainer }}
           breakpoint="lg"
           collapsedWidth={64}
+          width={232}
         >
-          <div
-            style={{
-              height: 48,
-              margin: 12,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: token.colorPrimary,
-              fontWeight: 700,
-              fontSize: collapsed ? 14 : 16,
-            }}
-          >
-            {collapsed ? 'Q' : 'Crypto Quant'}
-          </div>
+          {brand(collapsed)}
           {menu}
         </Sider>
       )}
@@ -114,7 +188,6 @@ export default function MainLayout() {
           className="app-header"
           style={{
             padding: isMobile ? '0 12px' : '0 24px',
-            background: token.colorBgContainer,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -123,7 +196,7 @@ export default function MainLayout() {
             height: isMobile ? 52 : 64,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
             {isMobile && (
               <Button
                 type="text"
@@ -132,25 +205,18 @@ export default function MainLayout() {
                 aria-label="打开菜单"
               />
             )}
-            <span
-              className="app-header-title"
-              style={{
-                fontSize: isMobile ? 15 : 16,
-                fontWeight: 600,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {isMobile ? 'Crypto Quant' : '个人加密永续合约量化交易系统'}
-            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="app-header-title" style={{ fontSize: isMobile ? 16 : 18, fontWeight: 600 }}>
+                {isMobile ? 'Crypto Quant' : pageTitle}
+              </div>
+              {!isMobile && (
+                <div className="app-header-sub">个人加密永续合约量化交易系统</div>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 4 : 16, flexShrink: 0 }}>
-            {!isMobile && (
-              <span style={{ color: token.colorTextSecondary, fontSize: 13 }}>
-                OKX · USDT 永续 · 15m · 5x
-              </span>
-            )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 8 : 12, flexShrink: 0 }}>
+            <ThemeToggle size={isMobile ? 'small' : 'middle'} />
+            {okxTag}
             {authEnabled && (
               <Button
                 type="text"
@@ -159,33 +225,42 @@ export default function MainLayout() {
                   clearAuthToken()
                   navigate('/login')
                 }}
+                style={{ color: 'var(--app-text-muted)' }}
               >
-                {isMobile ? '' : '退出登录'}
+                {isMobile ? '' : '退出'}
               </Button>
             )}
           </div>
         </Header>
-        <Content
-          className="app-content"
-          style={{
-            margin: isMobile ? 8 : 16,
-            padding: isMobile ? 12 : 24,
-            background: token.colorBgContainer,
-            borderRadius: 8,
-          }}
-        >
+
+        {/* 面包屑 */}
+        {!isMobile && (
+          <div style={{ padding: '12px 24px 0' }}>
+            <Breadcrumb
+              items={breadcrumbs.map((item) => ({
+                title: item.path === location.pathname
+                  ? item.title
+                  : <Link to={item.path} style={{ color: 'var(--app-text-muted)' }}>{item.title}</Link>,
+              }))}
+            />
+          </div>
+        )}
+
+        <Content className="app-content" style={{ margin: isMobile ? 10 : 20, padding: 0 }}>
           <Outlet />
         </Content>
       </Layout>
       {isMobile && (
         <Drawer
-          title="Crypto Quant"
+          title={null}
           placement="left"
           open={drawerOpen}
           onClose={() => setDrawerOpen(false)}
-          width={280}
-          styles={{ body: { padding: 0 } }}
+          width={260}
+          className="app-sider"
+          styles={{ body: { padding: '8px 0' } }}
         >
+          {brand()}
           {menu}
         </Drawer>
       )}

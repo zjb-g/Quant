@@ -27,8 +27,12 @@
 cp .env.example .env          # 填入 OKX / DeepSeek 等密钥
 python -m venv .venv && .venv/bin/pip install -e ".[dev,freqtrade]"
 
-# 一键启动 Web（API + 前端）
-bash scripts/start_web.sh
+# 一键启动 Web（API + 前端，后台运行）
+bash start.sh
+# 或: bash scripts/start.sh
+# 停止: bash scripts/stop.sh
+# 状态: bash scripts/status.sh
+# 强制重建前端: bash start.sh --build
 # 浏览器打开 http://localhost:8000
 ```
 

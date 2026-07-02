@@ -297,14 +297,21 @@ class FreqtradeService:
             raise RuntimeError(f"dry-run 安全检查未通过: {msg}")
 
     def _inject_okx_keys(self, config_path: Path) -> Path:
-        """将 .env 中的 OKX 密钥注入临时 dry-run 配置。"""
+        """将 .env 中的 OKX 密钥注入临时 dry-run 配置。
+
+        安全：dry-run 模式下 Freqtrade 不需要真实 API 密钥（dry_run=True）。
+        若环境变量提供了密钥，注入占位符避免 secret 明文落盘；
+        仅在非 dry-run 模式下需要真实密钥时通过环境变量传递。
+        """
         raw = json.loads(config_path.read_text(encoding="utf-8"))
         raw["dry_run"] = True
         raw["dataformat_ohlcv"] = "feather"
         ex = raw.setdefault("exchange", {})
-        ex["key"] = os.environ.get("OKX_API_KEY", ex.get("key", ""))
-        ex["secret"] = os.environ.get("OKX_API_SECRET", ex.get("secret", ""))
-        ex["password"] = os.environ.get("OKX_API_PASSPHRASE", ex.get("password", ""))
+        # dry-run 模式不需要真实密钥，写入占位符防止 secret 泄露
+        # 真实密钥通过环境变量在运行时由 ccxt 读取
+        ex["key"] = os.environ.get("OKX_API_KEY", "")
+        ex["secret"] = "DRY_RUN_NO_SECRET_NEEDED"
+        ex["password"] = os.environ.get("OKX_API_PASSPHRASE", "")
         tmp = LOG_DIR / "dryrun_runtime_config.json"
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(raw, indent=2), encoding="utf-8")

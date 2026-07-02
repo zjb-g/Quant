@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
 import {
-  Card, Table, Button, Modal, Input, Space, Tag, message, Tabs,
-  Typography, Alert, Spin, Form, Descriptions
+  Card, Table, Button, Modal, Input, Space, Tag, message,
+  Typography, Alert, Form,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, EditOutlined, RobotOutlined,
-  CodeOutlined, ReloadOutlined, SaveOutlined
+  CodeOutlined, ReloadOutlined,
 } from '@ant-design/icons'
 import { apiClient, type StrategyInfo } from '../api/client'
+import LoadingState from '../components/LoadingState'
+import EmptyState from '../components/EmptyState'
+import ErrorState from '../components/ErrorState'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -15,6 +18,7 @@ const { Text } = Typography
 export default function StrategyPage() {
   const [strategies, setStrategies] = useState<StrategyInfo[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [aiConfigured, setAiConfigured] = useState(false)
   const [aiModalOpen, setAiModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -27,6 +31,7 @@ export default function StrategyPage() {
 
   const load = async () => {
     setLoading(true)
+    setError(null)
     try {
       const [list, ai] = await Promise.all([
         apiClient.getStrategies(),
@@ -34,8 +39,10 @@ export default function StrategyPage() {
       ])
       setStrategies(list)
       setAiConfigured(ai.configured)
-    } catch {
-      message.error('加载策略列表失败')
+    } catch (err: unknown) {
+      const msg = (err as { message?: string })?.message || '加载策略列表失败'
+      setError(msg)
+      message.error(msg)
     } finally {
       setLoading(false)
     }
@@ -53,7 +60,6 @@ export default function StrategyPage() {
       const result = await apiClient.aiGenerateStrategy(aiDescription, aiFilename)
       message.success('AI 策略生成成功！')
       setAiModalOpen(false)
-      // 打开编辑窗口让用户确认
       setEditingCode(result.code)
       setEditingFilename(result.filename)
       setEditModalOpen(true)
@@ -124,7 +130,15 @@ export default function StrategyPage() {
   return (
     <div>
       <Card
-        title="策略管理"
+        title={
+          <span>
+            <CodeOutlined style={{ marginRight: 8 }} />
+            策略管理
+            {strategies.length > 0 && (
+              <Tag style={{ marginLeft: 8 }} color="blue">{strategies.length} 个</Tag>
+            )}
+          </span>
+        }
         extra={
           <Space>
             <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
@@ -165,51 +179,74 @@ export default function StrategyPage() {
           />
         )}
 
-        <Table
-          dataSource={strategies}
-          rowKey="filename"
-          loading={loading}
-          pagination={false}
-          scroll={{ x: 720 }}
-          columns={[
-            {
-              title: '文件名',
-              dataIndex: 'filename',
-              key: 'filename',
-              render: (v: string) => <Text code>{v}</Text>,
-            },
-            { title: '类名', dataIndex: 'name', key: 'name' },
-            {
-              title: '描述',
-              dataIndex: 'description',
-              key: 'description',
-              ellipsis: true,
-            },
-            {
-              title: '状态',
-              key: 'status',
-              width: 100,
-              render: (_: any, r: StrategyInfo) =>
-                r.has_errors ? (
-                  <Tag color="red">语法错误</Tag>
-                ) : (
-                  <Tag color="green">正常</Tag>
+        {error && <ErrorState message="加载失败" description={error} onRetry={load} />}
+
+        {loading && !error && <LoadingState />}
+
+        {!loading && !error && strategies.length === 0 && (
+          <EmptyState
+            description="暂无策略"
+            detail='点击「新建策略」手动编写，或配置 AI Key 后使用「AI 生成策略」'
+          />
+        )}
+
+        {!loading && strategies.length > 0 && (
+          <Table
+            dataSource={strategies}
+            rowKey="filename"
+            pagination={false}
+            scroll={{ x: 720 }}
+            size="middle"
+            columns={[
+              {
+                title: '文件名',
+                dataIndex: 'filename',
+                key: 'filename',
+                width: 200,
+                render: (v: string) => <Text code>{v}</Text>,
+              },
+              { title: '类名', dataIndex: 'name', key: 'name', width: 200 },
+              {
+                title: '描述',
+                dataIndex: 'description',
+                key: 'description',
+                ellipsis: true,
+              },
+              {
+                title: '状态',
+                key: 'status',
+                width: 100,
+                render: (_: any, r: StrategyInfo) =>
+                  r.has_errors ? (
+                    <Tag color="error">语法错误</Tag>
+                  ) : (
+                    <Tag color="success">正常</Tag>
+                  ),
+              },
+              {
+                title: '操作',
+                key: 'actions',
+                width: 220,
+                render: (_: any, r: StrategyInfo) => (
+                  <Space size="small">
+                    <Button size="small" icon={<CodeOutlined />} onClick={() => handleView(r.filename)}>
+                      查看
+                    </Button>
+                    <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r.filename)}>
+                      编辑
+                    </Button>
+                    <Button
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => handleDelete(r.filename)}
+                    />
+                  </Space>
                 ),
-            },
-            {
-              title: '操作',
-              key: 'actions',
-              width: 200,
-              render: (_: any, r: StrategyInfo) => (
-                <Space>
-                  <Button size="small" icon={<CodeOutlined />} onClick={() => handleView(r.filename)}>查看</Button>
-                  <Button size="small" icon={<EditOutlined />} onClick={() => handleEdit(r.filename)}>编辑</Button>
-                  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(r.filename)} />
-                </Space>
-              ),
-            },
-          ]}
-        />
+              },
+            ]}
+          />
+        )}
       </Card>
 
       {/* AI 生成弹窗 */}

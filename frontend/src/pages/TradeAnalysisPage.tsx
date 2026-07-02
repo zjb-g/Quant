@@ -13,6 +13,8 @@ import {
   type TradeAnalysisStats,
   type TradeBucketStats,
 } from '../api/client'
+import EmptyState from '../components/EmptyState'
+import { pnlColor, numAlign } from '../theme'
 
 const { RangePicker } = DatePicker
 const { Paragraph } = Typography
@@ -27,18 +29,24 @@ function BucketTable({ title, data }: { title: string; data: TradeBucketStats[] 
         pagination={false}
         columns={[
           { title: '分组', dataIndex: 'label' },
-          { title: '笔数', dataIndex: 'count', width: 70 },
+          { title: '笔数', dataIndex: 'count', width: 70, ...numberColumnStyle },
           {
             title: '胜率', dataIndex: 'win_rate', width: 80,
+            ...numAlign,
             render: (v: number) => `${v.toFixed(1)}%`,
           },
           {
             title: '总盈亏', dataIndex: 'total_pnl',
+            ...numAlign,
             render: (v: number) => (
-              <span style={{ color: v >= 0 ? '#3f8600' : '#cf1322' }}>{v.toFixed(2)}</span>
+              <span style={{ color: pnlColor(v), fontWeight: 500 }}>{v.toFixed(2)}</span>
             ),
           },
-          { title: '均盈亏', dataIndex: 'avg_pnl', render: (v: number) => v.toFixed(4) },
+          {
+            title: '均盈亏', dataIndex: 'avg_pnl',
+            ...numAlign,
+            render: (v: number) => v.toFixed(4),
+          },
         ]}
       />
     </Card>
@@ -118,7 +126,7 @@ export default function TradeAnalysisPage() {
   return (
     <div>
       <Card
-        title={<span><BarChartOutlined /> 持仓历史分析</span>}
+        title={<span><BarChartOutlined style={{ marginRight: 8 }} />持仓历史分析</span>}
         extra={
           <Space wrap>
             <RangePicker
@@ -168,8 +176,16 @@ export default function TradeAnalysisPage() {
         />
 
         <Spin spinning={loading}>
-          {stats && stats.total_trades > 0 ? (
+          {!loading && (!stats || stats.total_trades === 0) && (
+            <EmptyState
+              description="暂无历史持仓数据"
+              detail="或筛选条件下无记录，请调整筛选条件或确认交易所已连接并拉取了历史数据"
+            />
+          )}
+
+          {stats && stats.total_trades > 0 && (
             <>
+              {/* 核心指标 */}
               <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 <Col xs={12} sm={8} md={4}>
                   <Card><Statistic title="总交易" value={stats.total_trades} /></Card>
@@ -181,7 +197,9 @@ export default function TradeAnalysisPage() {
                       value={stats.win_rate}
                       precision={1}
                       suffix="%"
-                      valueStyle={{ color: stats.win_rate >= 50 ? '#3f8600' : '#cf1322' }}
+                      valueStyle={{
+                        color: stats.win_rate >= 50 ? '#52c41a' : '#ff4d4f',
+                      }}
                     />
                   </Card>
                 </Col>
@@ -192,58 +210,80 @@ export default function TradeAnalysisPage() {
                       value={stats.total_pnl}
                       precision={2}
                       suffix="U"
-                      valueStyle={{ color: stats.total_pnl >= 0 ? '#3f8600' : '#cf1322' }}
+                      valueStyle={{ color: pnlColor(stats.total_pnl) }}
                     />
                   </Card>
                 </Col>
                 <Col xs={12} sm={8} md={4}>
-                  <Card><Statistic title="盈亏比" value={stats.profit_factor} precision={2} /></Card>
-                </Col>
-                <Col xs={12} sm={8} md={4}>
-                  <Card><Statistic title="均持仓(h)" value={stats.avg_holding_hours} precision={1} /></Card>
+                  <Card>
+                    <Statistic
+                      title="盈亏比"
+                      value={stats.profit_factor}
+                      precision={2}
+                      valueStyle={{
+                        color: stats.profit_factor >= 1 ? '#52c41a' : '#ff4d4f',
+                      }}
+                    />
+                  </Card>
                 </Col>
                 <Col xs={12} sm={8} md={4}>
                   <Card>
-                    <Statistic title="手续费+资金费" value={stats.total_fee + stats.total_funding_fee} precision={2} suffix="U" />
+                    <Statistic
+                      title="均持仓(h)"
+                      value={stats.avg_holding_hours}
+                      precision={1}
+                    />
+                  </Card>
+                </Col>
+                <Col xs={12} sm={8} md={4}>
+                  <Card>
+                    <Statistic
+                      title="费用合计"
+                      value={stats.total_fee + stats.total_funding_fee}
+                      precision={2}
+                      suffix="U"
+                    />
                   </Card>
                 </Col>
               </Row>
 
-              <Row gutter={16}>
+              {/* 图表 */}
+              <Row gutter={[16, 16]}>
                 <Col xs={24} md={12}>
                   <Card title="多空胜率对比" size="small">
-                    <ResponsiveContainer width="100%" height={260}>
+                    <ResponsiveContainer width="100%" height={280}>
                       <BarChart data={sideChartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                         <XAxis dataKey="name" />
                         <YAxis yAxisId="left" />
                         <YAxis yAxisId="right" orientation="right" />
                         <Tooltip />
                         <Legend />
-                        <Bar yAxisId="left" dataKey="胜率" fill="#1890ff" name="胜率%" />
-                        <Bar yAxisId="right" dataKey="盈亏" fill="#52c41a" name="盈亏U" />
+                        <Bar yAxisId="left" dataKey="胜率" fill="#1677ff" name="胜率%" radius={[4, 4, 0, 0]} />
+                        <Bar yAxisId="right" dataKey="盈亏" fill="#52c41a" name="盈亏U" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </Card>
                 </Col>
                 <Col xs={24} md={12}>
                   <Card title="杠杆分组表现" size="small">
-                    <ResponsiveContainer width="100%" height={260}>
+                    <ResponsiveContainer width="100%" height={280}>
                       <BarChart data={leverageChartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                         <XAxis dataKey="name" />
                         <YAxis />
                         <Tooltip />
                         <Legend />
-                        <Bar dataKey="胜率" fill="#722ed1" name="胜率%" />
-                        <Bar dataKey="盈亏" fill="#fa8c16" name="盈亏U" />
+                        <Bar dataKey="胜率" fill="#722ed1" name="胜率%" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="盈亏" fill="#fa8c16" name="盈亏U" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </Card>
                 </Col>
               </Row>
 
-              <Row gutter={16} style={{ marginTop: 16 }}>
+              {/* 分组表格 */}
+              <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
                 <Col xs={24} md={12}>
                   <BucketTable title="持仓时长分组" data={stats.by_holding} />
                 </Col>
@@ -252,25 +292,25 @@ export default function TradeAnalysisPage() {
                 </Col>
               </Row>
 
-              <Row gutter={16}>
+              <Row gutter={[16, 16]}>
                 <Col xs={24} md={12}>
                   <Card title="最佳 / 最差单笔" size="small">
-                    <Space direction="vertical">
-                      <div>
-                        最大盈利：
-                        <Tag color="green">{stats.max_win.toFixed(4)} USDT</Tag>
+                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>最大盈利：</span>
+                        <Tag color="success">{stats.max_win.toFixed(4)} USDT</Tag>
                       </div>
-                      <div>
-                        最大亏损：
-                        <Tag color="red">{stats.max_loss.toFixed(4)} USDT</Tag>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>最大亏损：</span>
+                        <Tag color="error">{stats.max_loss.toFixed(4)} USDT</Tag>
                       </div>
-                      <div>
-                        平均盈利：
-                        <Tag color="green">{stats.avg_win.toFixed(4)} USDT</Tag>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>平均盈利：</span>
+                        <Tag color="success">{stats.avg_win.toFixed(4)} USDT</Tag>
                       </div>
-                      <div>
-                        平均亏损：
-                        <Tag color="red">{stats.avg_loss.toFixed(4)} USDT</Tag>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>平均亏损：</span>
+                        <Tag color="error">{stats.avg_loss.toFixed(4)} USDT</Tag>
                       </div>
                     </Space>
                   </Card>
@@ -280,14 +320,13 @@ export default function TradeAnalysisPage() {
                 </Col>
               </Row>
             </>
-          ) : (
-            !loading && <Alert type="warning" message="暂无历史持仓数据，或筛选条件下无记录" />
           )}
         </Spin>
       </Card>
 
+      {/* AI 分析 Modal */}
       <Modal
-        title="AI 交易模式分析"
+        title={<span><RobotOutlined /> AI 交易模式分析</span>}
         open={aiModalOpen}
         onCancel={() => setAiModalOpen(false)}
         footer={null}

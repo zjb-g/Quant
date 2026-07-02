@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Form, Input, Typography, message } from 'antd'
-import { LockOutlined, UserOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Form, Input, Typography, message, Divider } from 'antd'
+import { LockOutlined, UserOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { apiClient, clearAuthToken, setAuthToken } from '../api/client'
+import ThemeToggle from '../components/ThemeToggle'
+
+const { Title, Text } = Typography
 
 export default function RegisterPage() {
   const navigate = useNavigate()
@@ -21,7 +24,7 @@ export default function RegisterPage() {
           navigate('/dashboard', { replace: true })
           return
         }
-        setAllowRegister(status.allow_register)
+        setAllowRegister(status.allow_register ?? false)
       })
       .catch(() => setAllowRegister(false))
       .finally(() => setChecking(false))
@@ -53,40 +56,71 @@ export default function RegisterPage() {
 
   if (!allowRegister) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-        <Card style={{ width: 400, maxWidth: '100%' }}>
-          <Alert type="warning" message="当前未开放注册" description="请联系管理员获取账号。" />
-          <Button type="link" style={{ marginTop: 12, padding: 0 }}>
-            <Link to="/login">返回登录</Link>
-          </Button>
+      <div className="auth-page">
+        <div className="auth-bg-decoration" />
+        <div className="auth-page-toggle">
+          <ThemeToggle />
+        </div>
+        <Card className="auth-card" bordered={false}>
+          <div className="auth-logo">
+            <div className="auth-logo-mark">
+              <ThunderboltOutlined style={{ fontSize: 24 }} />
+            </div>
+            <Title level={2} className="auth-title">
+              Crypto Quant
+            </Title>
+          </div>
+          <Alert
+            type="warning"
+            message="当前未开放注册"
+            description="请联系管理员获取账号。"
+            showIcon
+          />
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <Link to="/login" className="auth-link">返回登录</Link>
+          </div>
         </Card>
       </div>
     )
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px 16px',
-        boxSizing: 'border-box',
-        background: 'linear-gradient(160deg, #0f1419 0%, #1a2332 50%, #0d1117 100%)',
-      }}
-    >
-      <Card style={{ width: 400, maxWidth: '100%' }}>
-        <Typography.Title level={3} style={{ marginTop: 0, textAlign: 'center' }}>
-          注册账号
-        </Typography.Title>
+    <div className="auth-page">
+      <div className="auth-bg-decoration" />
+
+      <div className="auth-page-toggle">
+        <ThemeToggle />
+      </div>
+
+      <Card className="auth-card" bordered={false}>
+        {/* 品牌标识 */}
+        <div className="auth-logo">
+          <div className="auth-logo-mark">
+            <ThunderboltOutlined style={{ fontSize: 24 }} />
+          </div>
+          <Title level={2} className="auth-title">
+            Crypto Quant
+          </Title>
+          <Text type="secondary" style={{ fontSize: 13, textAlign: 'center' }}>
+            创建您的量化交易账号
+          </Text>
+        </div>
+
+        <Divider style={{ margin: '0 0 20px' }} />
+
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 24 }}
           message="注册后可保存自己的 OKX API Key，独立查看持仓复盘数据。"
         />
-        <Form layout="vertical" onFinish={onFinish} autoComplete="off">
+
+        <Form
+          layout="vertical"
+          onFinish={onFinish}
+          autoComplete="off"
+          size="large"
+        >
           <Form.Item
             name="username"
             label="用户名"
@@ -95,8 +129,12 @@ export default function RegisterPage() {
               { pattern: /^[A-Za-z0-9_]{3,32}$/, message: '3-32 位字母、数字或下划线' },
             ]}
           >
-            <Input prefix={<UserOutlined />} placeholder="例如 trader01" />
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="例如 trader01"
+            />
           </Form.Item>
+
           <Form.Item
             name="password"
             label="密码"
@@ -105,20 +143,39 @@ export default function RegisterPage() {
               { min: 8, message: '至少 8 位' },
             ]}
           >
-            <Input.Password prefix={<LockOutlined />} placeholder="至少 8 位" />
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="至少 8 位密码"
+            />
           </Form.Item>
+
           <Form.Item
             name="confirm"
             label="确认密码"
             rules={[{ required: true, message: '请再次输入密码' }]}
           >
-            <Input.Password prefix={<LockOutlined />} placeholder="再次输入密码" />
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="再次输入密码"
+            />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={loading}>
+
+          <Button
+            type="primary"
+            htmlType="submit"
+            block
+            loading={loading}
+            size="large"
+            style={{ height: 44, fontWeight: 600 }}
+          >
             注册并登录
           </Button>
-          <div style={{ marginTop: 12, textAlign: 'center' }}>
-            <Link to="/login">已有账号？去登录</Link>
+
+          <div style={{ marginTop: 20, textAlign: 'center' }}>
+            <Text type="secondary">已有账号？</Text>{' '}
+            <Link to="/login" className="auth-link">
+              去登录
+            </Link>
           </div>
         </Form>
       </Card>

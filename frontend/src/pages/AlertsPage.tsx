@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Card, Table, Tag, Select, Space, Badge } from 'antd'
+import { AlertOutlined } from '@ant-design/icons'
 import { apiClient, type AlertEvent } from '../api/client'
+import LoadingState from '../components/LoadingState'
+import EmptyState from '../components/EmptyState'
 
 const LEVEL_COLOR: Record<string, string> = {
   INFO: 'blue',
@@ -51,60 +54,76 @@ export default function AlertsPage() {
 
   const criticalCount = alerts.filter((a) => a.level === 'CRITICAL').length
   const warningCount = alerts.filter((a) => a.level === 'WARNING').length
+  const infoCount = alerts.length - criticalCount - warningCount
 
   return (
     <div>
       <Card
         title={
-          <Space>
+          <Space wrap>
+            <AlertOutlined />
             <span>告警事件</span>
-            <Badge count={criticalCount} overflowCount={99} />
-            <Tag color="red">CRITICAL: {criticalCount}</Tag>
-            <Tag color="orange">WARNING: {warningCount}</Tag>
-            <Tag color="blue">INFO: {alerts.length - criticalCount - warningCount}</Tag>
+            {criticalCount > 0 && (
+              <Badge count={criticalCount} overflowCount={99} />
+            )}
           </Space>
         }
         extra={
-          <Select
-            allowClear
-            placeholder="按级别筛选"
-            style={{ width: 150 }}
-            value={levelFilter}
-            onChange={setLevelFilter}
-            options={[
-              { label: 'CRITICAL', value: 'CRITICAL' },
-              { label: 'WARNING', value: 'WARNING' },
-              { label: 'INFO', value: 'INFO' },
-            ]}
-          />
+          <Space wrap>
+            <Tag color="red">CRITICAL: {criticalCount}</Tag>
+            <Tag color="orange">WARNING: {warningCount}</Tag>
+            <Tag color="blue">INFO: {infoCount}</Tag>
+            <Select
+              allowClear
+              placeholder="按级别筛选"
+              style={{ width: 140 }}
+              value={levelFilter}
+              onChange={setLevelFilter}
+              options={[
+                { label: 'CRITICAL', value: 'CRITICAL' },
+                { label: 'WARNING', value: 'WARNING' },
+                { label: 'INFO', value: 'INFO' },
+              ]}
+            />
+          </Space>
         }
       >
-        <Table
-          dataSource={filtered}
-          rowKey="id"
-          loading={loading}
-          size="small"
-          pagination={{ pageSize: 50 }}
-          scroll={{ x: 700 }}
-          columns={[
-            {
-              title: '时间',
-              dataIndex: 'timestamp',
-              key: 'timestamp',
-              width: 180,
-              render: (t: string) => new Date(t).toLocaleString('zh-CN'),
-            },
-            {
-              title: '级别',
-              dataIndex: 'level',
-              key: 'level',
-              width: 100,
-              render: (l: string) => <Tag color={LEVEL_COLOR[l]}>{l}</Tag>,
-            },
-            { title: '类型', dataIndex: 'type', key: 'type', width: 180 },
-            { title: '消息', dataIndex: 'message', key: 'message' },
-          ]}
-        />
+        {loading ? (
+          <LoadingState tip="加载告警数据..." />
+        ) : filtered.length > 0 ? (
+          <Table
+            dataSource={filtered}
+            rowKey="id"
+            size="middle"
+            pagination={{ pageSize: 50, showTotal: (t) => `共 ${t} 条` }}
+            scroll={{ x: 720 }}
+            columns={[
+              {
+                title: '时间',
+                dataIndex: 'timestamp',
+                key: 'timestamp',
+                width: 180,
+                render: (t: string) => new Date(t).toLocaleString('zh-CN'),
+              },
+              {
+                title: '级别',
+                dataIndex: 'level',
+                key: 'level',
+                width: 100,
+                render: (l: string) => (
+                  <Tag color={LEVEL_COLOR[l]}>{l}</Tag>
+                ),
+              },
+              { title: '类型', dataIndex: 'type', key: 'type', width: 180 },
+              { title: '消息', dataIndex: 'message', key: 'message' },
+            ]}
+          />
+        ) : (
+          <EmptyState
+            description={levelFilter ? `无 ${levelFilter} 级别告警` : '暂无告警'}
+            detail="系统运行正常，无告警事件"
+          />
+        )}
       </Card>
     </div>
   )

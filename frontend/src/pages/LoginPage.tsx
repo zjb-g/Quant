@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Form, Input, Typography, message } from 'antd'
-import { LockOutlined, UserOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Form, Input, Typography, message, Divider } from 'antd'
+import { LockOutlined, UserOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { apiClient, clearAuthToken, setAuthToken } from '../api/client'
+import ThemeToggle from '../components/ThemeToggle'
+
+const { Title, Text } = Typography
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -45,50 +48,84 @@ export default function LoginPage() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '24px 16px',
-        boxSizing: 'border-box',
-        background: 'linear-gradient(160deg, #0f1419 0%, #1a2332 50%, #0d1117 100%)',
-      }}
-    >
-      <Card style={{ width: 400, maxWidth: '100%' }}>
-        <Typography.Title level={3} style={{ marginTop: 0, textAlign: 'center' }}>
-          量化控制台登录
-        </Typography.Title>
+    <div className="auth-page">
+      {/* 背景装饰 */}
+      <div className="auth-bg-decoration" />
+
+      <div className="auth-page-toggle">
+        <ThemeToggle />
+      </div>
+
+      <Card className="auth-card" bordered={false}>
+        {/* 品牌标识 */}
+        <div className="auth-logo">
+          <div className="auth-logo-mark">
+            <ThunderboltOutlined style={{ fontSize: 24 }} />
+          </div>
+          <Title level={2} className="auth-title">
+            Crypto Quant
+          </Title>
+          <Text type="secondary" style={{ fontSize: 13, textAlign: 'center' }}>
+            个人加密永续合约量化交易系统
+          </Text>
+        </div>
+
+        <Divider style={{ margin: '0 0 20px' }} />
+
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 24 }}
           message="登录后可使用自己的账号；新用户请先注册，再导入 OKX API Key。"
         />
-        <Form layout="vertical" onFinish={onFinish} autoComplete="off">
+
+        <Form
+          layout="vertical"
+          onFinish={onFinish}
+          autoComplete="off"
+          size="large"
+        >
           <Form.Item
             name="username"
             label="用户名"
             rules={[{ required: true, message: '请输入用户名' }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="WEB_AUTH_USERNAME" />
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="请输入用户名"
+            />
           </Form.Item>
+
           <Form.Item
             name="password"
             label="密码"
             rules={[{ required: true, message: '请输入密码' }]}
           >
-            <Input.Password prefix={<LockOutlined />} placeholder="WEB_AUTH_PASSWORD" />
+            <Input.Password
+              prefix={<LockOutlined />}
+              placeholder="请输入密码"
+            />
           </Form.Item>
-          <Button type="primary" htmlType="submit" block loading={loading}>
-            登录
+
+          <Button
+            type="primary"
+            htmlType="submit"
+            block
+            loading={loading}
+            size="large"
+            style={{ height: 44, fontWeight: 600 }}
+          >
+            登录控制台
           </Button>
-        {allowRegister && (
-          <div style={{ marginTop: 12, textAlign: 'center' }}>
-            <Link to="/register">没有账号？立即注册</Link>
-          </div>
-        )}
+
+          {allowRegister && (
+            <div style={{ marginTop: 20, textAlign: 'center' }}>
+              <Text type="secondary">还没有账号？</Text>{' '}
+              <Link to="/register" className="auth-link">
+                立即注册
+              </Link>
+            </div>
+          )}
         </Form>
       </Card>
     </div>
